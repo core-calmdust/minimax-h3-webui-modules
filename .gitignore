@@ -1,0 +1,10 @@
+# Cowork が自動で置く作業ファイル（試験セルなど）は公開しない
+Claude outputs/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
