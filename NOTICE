@@ -1,0 +1,14 @@
+MiniMax H3 WebUI — extension modules
+Copyright (C) 2026 CALMDUST / AiHUB
+
+This repository is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+These modules are optional extensions loaded by MiniMax H3 WebUI (note edition).
+They depend on the WebUI's core cells and do not run on their own. The core
+WebUI (notebook cells 1–3) is NOT part of this repository and is distributed
+separately under its own license terms.
+
+This is an unofficial, community-made project. It is not affiliated with,
+endorsed by, or supported by MiniMax. No model weights are included.
+MiniMax H3 is licensed under the MiniMax H3 Community License Agreement,
+Copyright (c) 2026 MiniMax. All Rights Reserved.
