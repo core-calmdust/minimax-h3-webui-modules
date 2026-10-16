@@ -92,12 +92,13 @@
 }
 #rmm-icon input[type="range"] { accent-color: var(--h3-accent) !important; }
 #rmm-panel #rmm-gallery .grid-container { grid-template-columns: repeat(var(--rmm-cols, 5), 1fr) !important; }
-/* 🆕 #333 STATUS の見出しの行（STATUS ｜ ⬇ ダウンロード）。ダウンロードは見出しの右・編集欄の左 */
-#rmm-status-top { align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; margin-bottom: 6px !important; }
-#rmm-status-top > #rmm-status-label { flex: 1 1 auto !important; min-width: 0 !important; }
-#rmm-status-top #rmm-status-label p { margin: 0 !important; }
-#rmm-status-top #rmm-dl-btn { margin-top: 0 !important; height: 30px !important; width: auto !important; flex: 0 0 auto !important;
-                              padding: 0 14px !important; }
+/* 🆕 #334 STATUS の見出しの文字は出さず、⬇（アイコンだけ）を名前の行の右端に重ねる */
+#rmm-status-main { position: relative !important; }
+#rmm-status-top { position: absolute !important; top: 0 !important; right: 0 !important; z-index: 2 !important;
+                  width: auto !important; margin: 0 !important; padding: 0 !important; background: none !important; }
+#rmm-status-top #rmm-dl-btn { margin: 0 !important; height: 28px !important; width: 34px !important; min-width: 34px !important;
+                              padding: 0 !important; font-size: 14px !important; letter-spacing: 0 !important; }
+#rmm-detail .rmm-d-name, #rmm-msg { padding-right: 44px !important; }
 /* STATUS と置き場所の行は中身の高さだけ（一覧が短いときに STATUS が下へ伸びて、スライダーが下がらないように）*/
 #rmm-panel > #rmm-status-panel, #rmm-panel > #rmm-head-row, #lora-panel > #lora-head-row {
     flex: 0 0 auto !important; height: auto !important;

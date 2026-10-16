@@ -17,6 +17,7 @@ WebUI 本体（セル3）がコミット固定で読み込み、`setup` → `bui
   ・🆕 1.3.0（#333）: 編集はすべて STATUS の右のタブ（見た目・服／素材／種類・タグ）。素材・コマは STATUS の上で直接:
     クリックで選ぶ → 🗑 か枠の外へドラッグで消す、画像・動画・音声をドロップ（または ＋）で足す
     （Stack のコマの並びに画像を落とすとコマとして足す。それ以外は新しい素材）
+  ・🆕 1.4.0（#334）: 素材・コマをドラッグで並べ替え。足すときは仮のコマ（読み込み中）と 0〜100% の進み具合を出す
 メタ（本家 Luisacaotica/ComfyUI-MiniMaxH3Mod 互換）: `description`＝自然文、`concept_type`＝identity、
 分け書きは独自キー `h3webui_desc`＝{"appearance", "outfit"}。bundle は全体に置く。潜在には触らない。
 """
@@ -25,7 +26,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
@@ -103,6 +104,13 @@ I18N = {
     "✍️ 説明を生成": {"en": "✍️ Generate description", "zh": "✍️ 生成描述", "ko": "✍️ 설명 생성"},
     "💾 説明を保存": {"en": "💾 Save description", "zh": "💾 保存描述", "ko": "💾 설명 저장"},
     # 🆕 1.1.0 編集パネル（#331）
+    # 🆕 1.4.0（#334）
+    "エンコード中 {v0}/{v1}": {"en": "Encoding {v0}/{v1}", "zh": "正在编码 {v0}/{v1}", "ko": "인코딩 중 {v0}/{v1}"},
+    "画像をそろえています": {"en": "Preparing images", "zh": "正在整理图片", "ko": "이미지를 정리하는 중"},
+    "保存しています": {"en": "Saving", "zh": "正在保存", "ko": "저장하는 중"},
+    "読み込み中": {"en": "Loading", "zh": "正在读取", "ko": "불러오는 중"},
+    "完了": {"en": "Done", "zh": "完成", "ko": "완료"},
+    "↕ 素材 {v0} のコマ {v1} を {v2} 番目へ動かしました": {"en": "↕ Moved frame {v1} of source {v0} to position {v2}", "zh": "↕ 已将素材 {v0} 的第 {v1} 帧移到第 {v2} 位", "ko": "↕ 소재 {v0}의 프레임 {v1}을(를) {v2}번째로 옮겼습니다"},
     # 🆕 1.3.0（#333）
     "＋ 素材 {v0} にコマを {v1} 枚足しました（{v2} → {v3}）": {"en": "＋ Added {v1} frame(s) to source {v0} ({v2} → {v3})", "zh": "＋ 已为素材 {v0} 添加 {v1} 帧（{v2} → {v3}）", "ko": "＋ 소재 {v0}에 프레임 {v1}장을 더했습니다 ({v2} → {v3})"},
     "＋ 素材を {v0} 件足しました": {"en": "＋ Added {v0} source(s)", "zh": "＋ 已添加 {v0} 个素材", "ko": "＋ 소재 {v0}개를 더했습니다"},
@@ -265,6 +273,23 @@ CSS = """
 .rmm-ghost .rmm-it-cap { display: none; }
 .rmm-ghost.out { opacity: .4; outline: 2px solid #d9534f; }
 #rmm-fr-act, #rmm-fr-target, #rmm-fr-file { display: none !important; }
+/* 🆕 1.4.0 並べ替えの差し込み位置（アクセント色の縦線）と、読み込み中の仮のコマ */
+#rmm-detail .rmm-it.ins-l { box-shadow: -4px 0 0 0 var(--h3-accent); overflow: visible; }
+#rmm-detail .rmm-it.ins-r { box-shadow: 4px 0 0 0 var(--h3-accent); overflow: visible; }
+#rmm-detail .rmm-it.rmm-loading { display: flex; align-items: center; justify-content: center; cursor: default;
+                                  border-style: dashed; border-color: var(--h3-accent); background: var(--h3-elev); }
+#rmm-detail .rmm-spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--h3-border2);
+                        border-top-color: var(--h3-accent); animation: rmm-spin .8s linear infinite; }
+@keyframes rmm-spin { to { transform: rotate(360deg); } }
+/* 進み具合（gr.Progress）: 画面を白く覆わず、薄い幕＋アクセント色のバーと % を出す */
+#rmm-detail > .wrap { background: color-mix(in srgb, var(--h3-panel) 35%, transparent) !important; backdrop-filter: none !important; }
+#rmm-detail .html-container.pending { opacity: 0.6 !important; }
+#rmm-detail > .wrap .progress-level { width: min(360px, 80%) !important; }
+#rmm-detail > .wrap .progress-level-inner, #rmm-detail > .wrap .progress-text, #rmm-detail > .wrap .meta-text,
+#rmm-detail > .wrap .meta-text-center { color: var(--h3-muted) !important; font-size: 12px !important; letter-spacing: 0.04em !important; }
+#rmm-detail > .wrap .progress-bar-wrap { border: 1px solid var(--h3-border2) !important; border-radius: 4px !important;
+                                         height: 8px !important; background: var(--h3-bg) !important; }
+#rmm-detail > .wrap .progress-bar { background: var(--h3-accent) !important; border-radius: 3px !important; }
 /* 見た目と服の箱の間は、ほかの欄どうしと同じくらい空ける */
 #rmm-desc-of { margin-top: 12px !important; }
 #rmm-desc-row { margin-top: 4px !important; }
@@ -743,6 +768,47 @@ def _frames_keep(name, i, keep):
     return t, len(keep)
 
 
+def members_reorder(name, frm, to):
+    """素材 frm を to の位置へ（見本・コマの絵も付いていく）"""
+    hdr, key, top, mems = _need(name)
+    frm, to = int(frm), int(to)
+    n = len(mems)
+    if not (0 <= frm < n and 0 <= to < n) or frm == to:
+        return None
+    _backup(name)
+    order = list(range(n))
+    order.insert(to, order.pop(frm))
+    _write_raw(name, hdr, key, top, [mems[k] for k in order])
+    _pics_reorder(name, order)
+    return _T('↕ 素材 {v0} を {v1} 番目へ動かしました', v0=f'{frm + 1}', v1=f'{to + 1}')
+
+
+def frames_reorder(name, i, frm, to):
+    """素材 i のコマ frm を to の位置へ（コマの絵も付け直す）"""
+    hdr, key, top, mems = _need(name, i)
+    i, frm, to = int(i), int(frm), int(to)
+    m, z = mems[i]
+    t = int(z.shape[2]) if z.dim() == 5 else 0
+    if not (0 <= frm < t and 0 <= to < t) or frm == to:
+        return None
+    _backup(name)
+    order = list(range(t))
+    order.insert(to, order.pop(frm))
+    mems[i] = (m, z[:, :, order].contiguous())
+    _write_raw(name, hdr, key, top, mems)
+    tmp = {}
+    for k in range(t):
+        p = _fpath(name, i, k)
+        if os.path.isfile(p):
+            q = p + ".mv"
+            os.replace(p, q)
+            tmp[k] = q
+    for new_k, old_k in enumerate(order):
+        if old_k in tmp:
+            os.replace(tmp.pop(old_k), _fpath(name, i, new_k))
+    return _T('↕ 素材 {v0} のコマ {v1} を {v2} 番目へ動かしました', v0=f'{i + 1}', v1=f'{frm + 1}', v2=f'{to + 1}')
+
+
 def frames_drop(name, i, drop):
     """選んだコマ（1 始まり）を消す"""
     try:
@@ -775,7 +841,7 @@ def _enc_ready():
     return int(_g("calc_frames")(_g("MIN_DURATION")))
 
 
-def frames_add(name, i, paths):
+def frames_add(name, i, paths, prog=None):
     """Stack の素材 i の後ろに画像をコマとして足す（保存のときと同じく正方形へ余白でそろえてから 1 枚ずつ VAE）"""
     import math
     import torch
@@ -800,12 +866,17 @@ def frames_add(name, i, paths):
             q = os.path.join(tmpd, f"up_{j}.png")
             im.save(q)
             ups.append(q)
+    _p = prog or (lambda f, d="": None)
+    _p(0.08, _T('画像をそろえています'))
     sq, _e = _g("_refmod_stack_prepare")(ups, f"e{edge}")
     nf = _enc_ready()
-    rb = {k: [] for k in _g("REF_KINDS")}
-    rb["image"] = list(sq)
-    res = _g("refmod_encode_refs")(rb, nf, short_edge=edge)
-    zs = [zz for k, zz in res if k == "image"]
+    zs = []
+    for j, q in enumerate(sq):                                    # 1 枚ずつ（進み具合を出すため）
+        _p(0.1 + 0.8 * j / max(1, len(sq)), _T('エンコード中 {v0}/{v1}', v0=f'{j + 1}', v1=f'{len(sq)}'))
+        rb = {k: [] for k in _g("REF_KINDS")}
+        rb["image"] = [q]
+        zs += [zz for k, zz in _g("refmod_encode_refs")(rb, nf, short_edge=edge) if k == "image"]
+    _p(0.92, _T('保存しています'))
     if len(zs) != len(sq) or any(tuple(zz.shape[3:]) != tuple(z.shape[3:]) for zz in zs):
         raise RuntimeError(_T('❌ 足すコマの大きさが合いませんでした'))
     _backup(name)
@@ -822,7 +893,7 @@ def frames_add(name, i, paths):
               v2=f'{t0}', v3=f'{t0 + len(zs)}')
 
 
-def members_add(name, paths):
+def members_add(name, paths, prog=None):
     """画像・動画・音声を新しい素材として後ろに足す。大きさは今の映像の素材の短辺にそろえる（無ければ保存の既定）"""
     hdr, key, top, mems = _need(name)
     rb = {k: [] for k in _g("REF_KINDS")}
@@ -831,8 +902,17 @@ def members_add(name, paths):
     short = [min(int(zz.shape[3]), int(zz.shape[4])) * 16 for _m, zz in mems if zz.dim() == 5]
     size = (f"e{max(256, max(short) // 32 * 32)}" if short
             else str(_ST["ctx"].g.get("REFMOD_SIZE_DEFAULT", "e768")))
+    _p = prog or (lambda f, d="": None)
     nf = _enc_ready()
-    items, _pool = _g("refmod_encode_sized")(rb, nf, size)
+    srcs = [p for kk in ("image", "video", "audio") for p in rb[kk]]   # エンコードの並び（画像→動画→音声）
+    items = []
+    for j, p in enumerate(srcs):                                  # 1 件ずつ（進み具合を出すため）
+        _p(0.08 + 0.82 * j / max(1, len(srcs)), _T('エンコード中 {v0}/{v1}', v0=f'{j + 1}', v1=f'{len(srcs)}'))
+        one = {k: [] for k in _g("REF_KINDS")}
+        one[_kind_of(p)] = [p]
+        got, _pool = _g("refmod_encode_sized")(one, nf, size)
+        items += list(got)
+    _p(0.92, _T('保存しています'))
     if not items:
         raise RuntimeError(_T('❌ 足す素材をエンコードできませんでした'))
     if len(mems) + len(items) > 256:
@@ -847,7 +927,6 @@ def members_add(name, paths):
                      "tags": [], "description": "", "concept_type": "voice" if kind == "audio" else "generic",
                      "_format_version": 4, "sample_rate": 32000}, z))
     _write_raw(name, hdr, key, top, mems + add)
-    srcs = [p for kk in ("image", "video", "audio") for p in rb[kk]]   # エンコードの並び（画像→動画→音声）
     for k, p in enumerate(srcs):
         if _kind_of(p) != "audio":
             try:
@@ -998,6 +1077,16 @@ FRAME_JS = r"""() => {
     window.__h3RmmFrSeq = (window.__h3RmmFrSeq || 0) + 1;
     t.value = target(sec) + '|' + window.__h3RmmFrSeq;
     t.dispatchEvent(new Event('input', {bubbles: true}));
+    // 仮のコマ（読み込み中）を足し先の並びに出す。描き直しで消える
+    const strip = sec ? sec.querySelector('.rmm-d-strip') : null;
+    if (strip) {
+      const addT = strip.querySelector('.rmm-add');
+      for (let k = 0; k < files.length; k++) {
+        const ph = document.createElement('div'); ph.className = 'rmm-it rmm-loading';
+        ph.innerHTML = '<span class="rmm-spin"></span>';
+        strip.insertBefore(ph, addT);
+      }
+    }
     const dt = new DataTransfer();
     for (const f of files) { dt.items.add(f); }
     setTimeout(() => { inp.files = dt.files; inp.dispatchEvent(new Event('change', {bubbles: true})); }, 60);
@@ -1031,7 +1120,7 @@ FRAME_JS = r"""() => {
   // 枠の外へドラッグで消す（キーフレームと同じ: 外に出ると薄くなり、離すと消える）
   let drag = null;
   document.addEventListener('pointerdown', (e) => {
-    const it = e.target && e.target.closest && e.target.closest(ROOT + ' .rmm-it:not(.rmm-add)');
+    const it = e.target && e.target.closest && e.target.closest(ROOT + ' .rmm-it:not(.rmm-add):not(.rmm-loading)');
     if (!it || e.button !== 0) { return; }
     drag = {it: it, sec: it.closest('.rmm-d-sec'), x0: e.clientX, y0: e.clientY, moved: false, out: false, ghost: null};
     window.__h3RmmFrDragged = false;
@@ -1048,15 +1137,38 @@ FRAME_JS = r"""() => {
     const r = drag.sec.querySelector('.rmm-d-strip').getBoundingClientRect();
     const out = e.clientX < r.left - 24 || e.clientX > r.right + 24 || e.clientY < r.top - 24 || e.clientY > r.bottom + 24;
     if (out !== drag.out) { drag.out = out; drag.ghost.classList.toggle('out', out); drag.it.classList.toggle('out', out); }
+    // 並べ替え: 指の下のアイコンの左右どちらに入れるか（同じ並びの中だけ）
+    drag.sec.querySelectorAll('.ins-l, .ins-r').forEach(n => n.classList.remove('ins-l', 'ins-r'));
+    drag.ins = null;
+    if (!out) {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const tg = el && el.closest && el.closest('.rmm-it:not(.rmm-add):not(.rmm-loading)');
+      if (tg && tg !== drag.it && tg.closest('.rmm-d-sec') === drag.sec) {
+        const b = tg.getBoundingClientRect();
+        const after = e.clientX > b.left + b.width / 2;
+        tg.classList.add(after ? 'ins-r' : 'ins-l');
+        drag.ins = {tg: tg, after: after};
+      }
+    }
   });
   function endDrag() {
     if (!drag) { return; }
     const d = drag; drag = null;
     if (d.ghost) { d.ghost.remove(); }
     d.it.classList.remove('dragging', 'out');
+    d.sec.querySelectorAll('.ins-l, .ins-r').forEach(n => n.classList.remove('ins-l', 'ins-r'));
     if (d.moved && d.out) {
       const ids = d.it.classList.contains('sel') ? selIds(d.sec) : [d.it.dataset.i];
       del(d.sec, ids);
+    } else if (d.moved && d.ins) {
+      const tiles = [...d.sec.querySelectorAll('.rmm-it:not(.rmm-add):not(.rmm-loading)')];
+      const frm = tiles.indexOf(d.it);
+      let to = tiles.indexOf(d.ins.tg) + (d.ins.after ? 1 : 0);
+      if (frm < to) { to -= 1; }
+      if (frm >= 0 && to !== frm) {
+        d.ins.tg.parentNode.insertBefore(d.it, d.ins.after ? d.ins.tg.nextSibling : d.ins.tg);   // 先に見た目だけ動かす
+        send('mv|' + d.sec.dataset.sec + '|' + d.sec.dataset.m + '|' + frm + '|' + to);
+      }
     }
     setTimeout(() => { window.__h3RmmFrDragged = false; }, 0);
   }
@@ -1096,8 +1208,12 @@ def _fr_target(v):
 def fr_delete(name, payload):
     """JS からの 'del|f|<素材>|<コマ,…>|連番' / 'del|m||<素材,…>|連番'"""
     p = str(payload or "").split("|")
-    if len(p) < 4 or p[0] != "del":
+    if len(p) < 4 or p[0] not in ("del", "mv"):
         return None
+    if p[0] == "mv" and len(p) >= 5:                              # 'mv|f|<素材>|<元>|<先>|連番' / 'mv|m||<元>|<先>|連番'
+        if p[1] == "f":
+            return frames_reorder(name, int(p[2]), int(p[3]), int(p[4]))
+        return members_reorder(name, int(p[3]), int(p[4]))
     ids = [int(x) for x in p[3].split(",") if x.strip().lstrip("-").isdigit()]
     if p[1] == "f":
         i = int(p[2])
@@ -1106,7 +1222,7 @@ def fr_delete(name, payload):
     return members_remove(name, ids)
 
 
-def fr_upload(name, target, files):
+def fr_upload(name, target, files, prog=None):
     """ドロップ・＋で入ったファイル。コマの並び（f|i）なら画像はコマ、動画・音声は新しい素材"""
     paths = [f if isinstance(f, str) else getattr(f, "name", None) for f in (files or [])]
     paths = [p for p in paths if p and os.path.isfile(p)]
@@ -1118,12 +1234,16 @@ def fr_upload(name, target, files):
     msgs = []
     imgs = [p for p in paths if _kind_of(p) == "image"]
     rest = [p for p in paths if _kind_of(p) != "image"]
+    _p = prog or (lambda f, d="": None)
     if kind == "f" and m.isdigit() and imgs:
-        msgs.append(frames_add(name, int(m), imgs))
-        if rest:
-            msgs.append(members_add(name, rest))
+        if rest:                                                  # 進み具合は 2 つに分けて出す
+            msgs.append(frames_add(name, int(m), imgs, lambda f, d="": _p(f * 0.5, d)))
+            msgs.append(members_add(name, rest, lambda f, d="": _p(0.5 + f * 0.5, d)))
+        else:
+            msgs.append(frames_add(name, int(m), imgs, _p))
     else:
-        msgs.append(members_add(name, paths))
+        msgs.append(members_add(name, paths, _p))
+    _p(1.0, _T('完了'))
     return "\n\n".join(msgs)
 
 
@@ -1368,9 +1488,19 @@ def _fr_act(name, payload):
     return _ed_run(lambda n: fr_delete(n, payload), name)
 
 
-def _fr_upload(name, target, files):
+def _fr_upload(name, target, files, progress=None):
+    """🆕 1.4.0 進み具合（0〜100%）を STATUS の上に出す（gr.Progress）"""
     gr = _ST["ctx"].gr
-    return _ed_run(lambda n: fr_upload(n, target, files), name) + (gr.update(value=None),)
+    if progress is None:
+        progress = gr.Progress()
+
+    def _p(f, d=""):
+        try:
+            progress(float(max(0.0, min(1.0, f))), desc=d)
+        except Exception:                                         # noqa: BLE001
+            pass
+    _p(0.02, _T('読み込み中'))
+    return _ed_run(lambda n: fr_upload(n, target, files, _p), name) + (gr.update(value=None),)
 
 
 def wire(ctx, comps):
@@ -1425,8 +1555,19 @@ def wire(ctx, comps):
         # STATUS の上の操作（JS → 隠し欄は必ず .change＝本体 #257 と同じ。.input は飛ばない）。
         # 足すのはエンコード（GPU）なので生成と同じ列に並べる
         _chain(ui["fr_act"].change(fn=_fr_act, inputs=[sel, ui["fr_act"]], outputs=outs, show_progress="minimal"))
-        _chain(ui["fr_file"].upload(fn=_fr_upload, inputs=[sel, ui["fr_target"], ui["fr_file"]],
-                                    outputs=outs + [ui["fr_file"]], show_progress="minimal", concurrency_id="generate"))
+        # 進み具合（0〜100%）は STATUS の中身の上にだけ出す（show_progress_on）
+        _up_kw = dict(show_progress="full", concurrency_id="generate")
+        _gr = ctx.gr
+
+        def _fr_upload_ui(name, target, files, progress=_gr.Progress()):   # gr.Progress は既定値に置くと渡される
+            return _fr_upload(name, target, files, progress)
+        try:
+            _ev = ui["fr_file"].upload(fn=_fr_upload_ui, inputs=[sel, ui["fr_target"], ui["fr_file"]],
+                                       outputs=outs + [ui["fr_file"]], show_progress_on=[det], **_up_kw)
+        except TypeError:                                         # show_progress_on の無い Gradio
+            _ev = ui["fr_file"].upload(fn=_fr_upload_ui, inputs=[sel, ui["fr_target"], ui["fr_file"]],
+                                       outputs=outs + [ui["fr_file"]], **_up_kw)
+        _chain(_ev)
         demo = comps.get("demo")
         if demo is not None:
             demo.load(fn=None, js=FRAME_JS)
