@@ -1,0 +1,29 @@
+{
+ "format": 1,
+ "source": "ja",
+ "source_name": "日本語",
+ "scope": "cell3 (MiniMax H3 WebUI core UI)",
+ "languages": [
+  {
+   "code": "en",
+   "name": "English",
+   "file": "i18n/cell3/en.json",
+   "sha256": "d4cc0e5f250d2d7eb136b36955168c57070184c041daa14cf04cd390259108c7",
+   "entries": 814
+  },
+  {
+   "code": "zh",
+   "name": "中文",
+   "file": "i18n/cell3/zh.json",
+   "sha256": "42782918b0c93f408ad317ce5f52fef640e70e2ded5bb3c82620360522319721",
+   "entries": 814
+  },
+  {
+   "code": "ko",
+   "name": "한국어",
+   "file": "i18n/cell3/ko.json",
+   "sha256": "873c941806945fa0c8ec15c8f637d8aeebfae2374caf3ea221651d3eec07f4fd",
+   "entries": 814
+  }
+ ]
+}

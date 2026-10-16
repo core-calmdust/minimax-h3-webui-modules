@@ -18,6 +18,18 @@ on their own.
 | `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text |
 | `modules/face_refiner.py` | WebUI ver1.7 | Face Refiner: tracks faces (OpenCV Zoo YuNet), redraws the face clip with MiniMax H3 and pastes it back (CREATE option and UPSCALE ▸ Face Refiner). The UI stays in the core |
 
+## Translations (`i18n/`)
+
+The WebUI core's UI text (cell 3) is translated here. The **Japanese source text is the key**; anything missing
+falls back to Japanese.
+
+- `i18n/manifest.json` lists the languages (`code`, `name`, `file`, `sha256`). The core pins this file by commit and
+  sha256, and checks every language file against the sha256 written in the manifest.
+- `i18n/cell3/<code>.json` maps Japanese source text → translation.
+- **Adding a language**: add `i18n/cell3/<code>.json`, add one entry to `manifest.json` (with its sha256), then update
+  `I18N_PIN` (commit and manifest sha256) in cell 3. The language selector is built from the manifest.
+- Placeholders such as `{v0}` must be kept exactly. Modules keep their own strings in their `I18N` dict.
+
 ## Module contract (API 1)
 
 The core fetches `https://raw.githubusercontent.com/core-calmdust/minimax-h3-webui-modules/<commit>/<path>`,
@@ -64,6 +76,7 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 - このリポジトリの中身は **Apache-2.0**（`LICENSE` / `NOTICE`）。
 - WebUI 本体は別配布で、このライセンスの対象ではありません。
 - 本体はセル3に書いた**コミットと sha256** で固定して読み込み、Drive に控えを置きます。取れない・合わないときはモジュール無しで起動します。
+- `i18n/` は本体（セル3）の画面の翻訳です（原文の日本語がキー。`manifest.json` が言語の一覧）。言語を足すときは `i18n/cell3/<言語>.json` と manifest の 1 行を足し、セル3の `I18N_PIN` を更新します。
 
 | モジュール | 内容 |
 |---|---|
