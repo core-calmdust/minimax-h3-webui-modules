@@ -16,6 +16,7 @@ on their own.
 | module | since | what it does |
 |---|---|---|
 | `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text |
+| `modules/face_refiner.py` | WebUI ver1.7 | Face Refiner: tracks faces (OpenCV Zoo YuNet), redraws the face clip with MiniMax H3 and pastes it back (CREATE option and UPSCALE ▸ Face Refiner). The UI stays in the core |
 
 ## Module contract (API 1)
 
@@ -31,7 +32,7 @@ Each module is a Python file under `modules/` that exposes:
 | `I18N` (dict) | at load | the module's own ja → en/zh/ko strings, merged into the core's table |
 | `CSS` (str) | at launch | appended to the core's CSS (use the core's `--h3-*` variables) |
 | `SLOTS` (tuple) | while building the UI | the places in the core UI where the module adds components |
-| `setup(ctx)` | at load | register hooks: `ctx.hook(kind, fn)`, help text: `ctx.help(key, text)` |
+| `setup(ctx)` | at load | register hooks: `ctx.hook(kind, fn)`, help text: `ctx.help(key, text)`, functions the core calls: `ctx.provide(name, fn)` |
 | `build_slot(ctx, slot)` | inside the core's `gr.Blocks`, at each slot | create the module's Gradio components |
 | `wire(ctx, comps)` | after the UI is built | connect events; `comps` holds core components |
 
@@ -41,6 +42,7 @@ Each module is a Python file under `modules/` that exposes:
 Hooks: `prompt_pre(text, refs) -> (text, warnings)` · `refmod_after_save(name, items, paths, source) -> str` ·
 `refmod_detail_rows(name, meta) -> [(label, value)]`.
 Slots: `refmod_save_opts` · `rmb_opts` · `refmod_bar2` · `rmm_right`.
+Provided functions: `face_refine_apply` · `face_refine_still_img` · `do_video_refine` (face_refiner).
 
 Modules must not copy code from the core.
 
@@ -66,4 +68,5 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 | モジュール | 内容 |
 |---|---|
 | `modules/refmod_tools.py` | RefMod の見た目の説明（保存時・FINDER でプロンプト補助が書く／`<Subject k> is @refmod N.` に自動で足す／`@prompt N` で全文） |
+| `modules/face_refiner.py` | Face Refiner（YuNet で顔を追跡 → H3 で顔のクリップを描き直して貼り戻す。CREATE の顔補正・UPSCALE ▸ Face Refiner。UI は本体） |
 - モデルの重みは置きません。非公式のコミュニティ製で、MiniMax とは関係ありません。
