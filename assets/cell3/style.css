@@ -1463,7 +1463,11 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
 #upi-scale label, #upi-scale span, #upi-denoise label, #upi-denoise span,
 #upi-tile label, #upi-tile span,
 #upi-model .container, #upi-model .container > span,
-#upi-prompt label, #upi-prompt label > span:first-child {
+#upi-prompt label, #upi-prompt label > span:first-child,
+/* 🆕 #341 フレーム拡大・Latent Upscaler の欄も「出力の短辺」と同じ字（利用者指摘: 統一感） */
+#upf-model .container, #upf-model .container > span, #upf-blend label, #upf-blend label > span:first-child,
+#uph-model .container, #uph-model .container > span, #uph-strength label, #uph-strength label > span:first-child,
+#uph-prompt label, #uph-prompt label > span:first-child {
     font-size: 12px !important; color: var(--h3-muted) !important;
     letter-spacing: 0.04em !important; font-weight: 400 !important;
 }
@@ -1485,16 +1489,17 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
     font-size: 12px !important; color: var(--h3-muted) !important;
     letter-spacing: 0.04em !important; font-weight: 400 !important;
 }
-#up-short, #up-scale, #up-model, #upf-model, #upf-blend,
+#up-short, #up-scale, #up-model, #upf-model, #upf-blend, #uph-model, #uph-strength, #uph-prompt,
 #upi-scale, #upi-denoise, #upi-tile, #upi-model, #upi-prompt { margin-top: 0 !important; padding-top: 10px !important; }
-#up-fast-cfg { gap: 0 !important; padding: 0 !important; }
-#up-fast-cfg > * { margin: 0 !important; }
+#up-fast-cfg, #up-h3-cfg { gap: 0 !important; padding: 0 !important; }
+#up-fast-cfg > *, #up-h3-cfg > * { margin: 0 !important; }
 #up-short input, #up-scale input, #upi-scale input, #upi-denoise input, #upi-tile input,
 #upv-strength input, #upv-res input, #upv-factor input,
 #up-model input, #up-model .wrap-inner, #up-model .single-select,
 #upf-model input, #upf-model .wrap-inner, #upf-model .single-select, #upf-blend input,
 #upi-model input, #upi-model .wrap-inner, #upi-model .single-select,
-#upi-prompt textarea {
+#uph-model input, #uph-model .wrap-inner, #uph-model .single-select, #uph-strength input,
+#upi-prompt textarea, #uph-prompt textarea {
     color: var(--h3-text3) !important; font-size: 13px !important;
 }
 #up-short .min-value, #up-short .max-value,
@@ -1502,7 +1507,8 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
 #upi-scale .min-value, #upi-scale .max-value,
 #upi-denoise .min-value, #upi-denoise .max-value,
 #upi-tile .min-value, #upi-tile .max-value,
-#upf-blend .min-value, #upf-blend .max-value {
+#upf-blend .min-value, #upf-blend .max-value,
+#uph-strength .min-value, #uph-strength .max-value {
     color: var(--h3-faint) !important; font-size: 11px !important;
 }
 #up-gen-row, #upi-gen-row { gap: 6px !important; flex-wrap: nowrap !important; margin: 0 !important; }
