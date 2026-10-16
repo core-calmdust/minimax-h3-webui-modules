@@ -30,6 +30,13 @@ falls back to Japanese.
   `I18N_PIN` (commit and manifest sha256) in cell 3. The language selector is built from the manifest.
 - Placeholders such as `{v0}` must be kept exactly. Modules keep their own strings in their `I18N` dict.
 
+## CSS and JavaScript (`assets/`)
+
+The WebUI core's stylesheet and browser scripts (cell 3) live here.
+`assets/manifest.json` lists each file (`name`, `file`, `sha256`); the core pins the manifest by commit and sha256
+(`ASSETS_PIN` in cell 3) and checks every file. `style.css` still contains placeholders such as `__FONT__`, which the
+core fills in at start-up. If the assets cannot be fetched, the core starts with a minimal fallback stylesheet.
+
 ## Module contract (API 1)
 
 The core fetches `https://raw.githubusercontent.com/core-calmdust/minimax-h3-webui-modules/<commit>/<path>`,
@@ -76,6 +83,7 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 - このリポジトリの中身は **Apache-2.0**（`LICENSE` / `NOTICE`）。
 - WebUI 本体は別配布で、このライセンスの対象ではありません。
 - 本体はセル3に書いた**コミットと sha256** で固定して読み込み、Drive に控えを置きます。取れない・合わないときはモジュール無しで起動します。
+- `assets/` は本体（セル3）の CSS と JS です（`manifest.json` が一覧。セル3の `ASSETS_PIN` で固定）。
 - `i18n/` は本体（セル3）の画面の翻訳です（原文の日本語がキー。`manifest.json` が言語の一覧）。言語を足すときは `i18n/cell3/<言語>.json` と manifest の 1 行を足し、セル3の `I18N_PIN` を更新します。
 
 | モジュール | 内容 |

@@ -1,0 +1,68 @@
+
+/* ---- ✍️ プロンプト補助（PROMPT の下のアコーディオン）---- */
+/* 横幅を PROMPT 欄にそろえる（アコーディオンの見出し・中身の左右の余白 12px を消す。
+   PROMPT と同じパネルの中にあるので、余白があると 1 段内側に見えた＝利用者指摘 2026-09-30）*/
+#llm-acc { padding-left: 0 !important; padding-right: 0 !important; }
+#llm-acc > .label-wrap, #llm-acc > button { padding-left: 0 !important; padding-right: 0 !important; }
+#llm-acc > div:not(.label-wrap) { padding-left: 0 !important; padding-right: 0 !important; }
+#llm-btn-row { gap: 8px !important; flex-wrap: nowrap !important; margin-top: 4px !important; }
+#llm-btn, #llm-stop-btn, #llm-apply-btn {
+    height: 34px !important; margin: 0 !important; min-width: 0 !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#llm-btn:hover, #llm-apply-btn:hover {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
+}
+#llm-stop-btn:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important;
+                      color: var(--h3-on-danger) !important; }
+#llm-info p { font-size: 12px !important; color: var(--h3-muted) !important; margin: 6px 0 0 0 !important;
+              letter-spacing: 0.04em !important; }
+#llm-out textarea { font-size: 13px !important; line-height: 1.55 !important; }
+
+/* ---- REFMOD タブ固有 ---- */
+/* ボタンは LORA タブの「🗑 削除」「取り込む」と同じ見た目 */
+#rmm-use-btn, #rmm-apply-btn, #rmm-import-btn, #rmm-dl-btn {
+    width: 100% !important; height: 34px !important; margin-top: 8px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#rmm-use-btn:hover, #rmm-apply-btn:hover, #rmm-import-btn:hover, #rmm-dl-btn:hover:not(:disabled) {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
+}
+#rmm-right > #rmm-use-btn { margin-top: 2px !important; }
+#rmm-dl-btn { margin-top: 10px !important; }
+#rmm-dl-btn:disabled { opacity: 0.45 !important; cursor: default !important; }
+#rmm-hint p { font-size: 12px !important; color: var(--h3-faint) !important; margin: 8px 0 !important; }
+#rmm-folder-dd .container, #rmm-folder-dd > .container, #rmm-folder-dd .container > span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+/* 値の字は同じ箱の「名前」欄（.panel-acc の規則で 12px・muted）にそろえる */
+#rmm-folder-dd .container input, #rmm-folder-dd .container .wrap-inner {
+    color: var(--h3-muted) !important; font-size: 12px !important; letter-spacing: 0.04em !important;
+}
+/* アコーディオンの中の入力をまとめる `.form` の箱は出さない（二重の箱に見える）*/
+#rmm-right .panel-acc .form {
+    background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
+}
+/* STATUS の中身（LORA の詳細と同じ字の大きさ・色）*/
+#rmm-detail, #rmm-detail > div, #rmm-detail .prose, #rmm-detail .html-container {
+    padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; min-height: 0 !important;
+}
+/* 🆕 ver1.7 #318 名前は LORA の詳細の見出し（#lora-detail h3）と同じ 14px。!important が無く .prose の大きな字に負けていた */
+#rmm-detail .rmm-d-name { font-size: 14px !important; color: var(--h3-text) !important; margin: 0 0 8px 0 !important;
+                          word-break: break-all; font-weight: 600 !important; line-height: 1.4 !important;
+                          letter-spacing: normal !important; }
+#rmm-detail .rmm-d-refs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+#rmm-detail .rmm-d-ref { width: 64px; text-align: center; }
+#rmm-detail .rmm-d-ref img, #rmm-detail .rm-noimg {
+    width: 64px; height: 64px; object-fit: cover; border-radius: 6px; display: flex;
+    align-items: center; justify-content: center; background: var(--h3-elev); font-size: 20px; margin: 0;
+}
+#rmm-detail .rmm-d-cap { font-size: 11px; color: var(--h3-muted); margin-top: 3px; line-height: 1.3; }
+#rmm-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: 12px; }
+#rmm-detail dt { color: var(--h3-faint); letter-spacing: 0.04em; }
+#rmm-detail dd { color: var(--h3-muted); margin: 0; word-break: break-all; }

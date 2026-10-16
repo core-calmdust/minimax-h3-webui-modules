@@ -1,0 +1,2485 @@
+
+@import url('__FONT_URL__');
+
+/* ============================================================
+   0. カラートークン（ライト / ダーク）
+   ------------------------------------------------------------
+   ⚠️ **色はここでしか定義しない。** 以降の節は var(--h3-*) だけを使う。
+   ダークの判定は **Gradio 自身が body に付ける `.dark` クラス**に乗せてある。
+   Gradio は起動時に「システム設定に追従」を既定とし、`?__theme=` と
+   設定メニューでの上書きも同じクラスで表現するので、こちらで判定を
+   二重に持たない。ヘッダーの ◐ ボタンも同じクラスを付け外しする。
+   ============================================================ */
+:root, .gradio-container {
+    --h3-bg: #f1f1f4;
+    --h3-panel: #ffffff;
+    --h3-elev: #ececef;
+    --h3-elev2: #ffffff;   /* 隙間を塞ぐ色。ライトは箱の内側と同じ白（灰色に浮かないように）*/
+    --h3-icon-btn: #ffffff;   /* LoRA欄の🔄。ライトは白基調 */
+    --h3-divider: #ebebf0;
+    --h3-track: #e0e0e6;
+    --h3-kf-track: #f3f3f6;   /* Keyframe タイムラインの塗り。白い箱より一段だけ灰色 */
+    --h3-border: #e2e2e8;
+    --h3-border2: #d0d0d8;
+    --h3-border3: #c9c9d2;
+    --h3-border-hover: #b2b2bc;
+    --h3-faint2: #9a9aa4;
+    --h3-faint: #8b8b95;
+    --h3-muted: #6b6b76;
+    --h3-muted2: #7b7b85;
+    --h3-title: #5a5a64;
+    --h3-text3: #4f4f59;
+    --h3-text2: #3a3a44;
+    --h3-text: #2b2b33;
+    --h3-thumb: #6b6b76;
+    --h3-thumb-hi: #1c1c22;
+    --h3-on-accent: #241700;
+    --h3-on-danger: #ffffff;
+    --h3-accent: #ffaa33;
+    --h3-accent-text: #a86400;
+    --h3-accent-hi: #ffbb55;
+    --h3-accent-dim: #f2d9ab;
+    --h3-accent-dim-fg: #8a7550;
+    --h3-accent-2: #cf8a12;
+    --h3-accent-soft: rgba(255,170,51,0.28);
+    --h3-danger-bg: #c04545;
+    --h3-danger-border: #a83a3a;
+    --h3-danger-bg2: #fdeeee;
+    --h3-danger-border2: #e6bcbc;
+    --h3-danger-bg3: #c04545;
+    --h3-danger-text: #a33636;
+    --h3-shadow: rgba(0,0,0,0.20);
+    --h3-caption-bg: rgba(255,255,255,0.88);
+    --h3-veil: rgba(20,20,24,0.34);   /* 一覧を大きく開いたときの後ろの幕 */
+}
+body.dark, body.dark .gradio-container, .dark .gradio-container {
+    --h3-bg: #1a1a1c;
+    --h3-panel: #202024;
+    --h3-elev: #2b2b30;
+    --h3-elev2: #27272a;   /* 同上（ダーク）。ダークは少し明るいグレーのままにする */
+    --h3-icon-btn: #2b2b30;   /* 同上（ダーク）。こちらはグレーを残す */
+    --h3-divider: #2e2e34;
+    --h3-track: #33333a;
+    --h3-kf-track: #2a2a2f;   /* 同上（ダーク）。箱より一段だけ明るい */
+    --h3-border: #3a3a42;
+    --h3-border2: #4a4a52;
+    --h3-border3: #5a5a62;
+    --h3-border-hover: #666666;
+    --h3-faint2: #5f5f66;
+    --h3-faint: #6a6a72;
+    --h3-muted: #888888;
+    --h3-muted2: #7a7a82;
+    --h3-title: #9a9aa2;
+    --h3-text3: #b0b0b8;
+    --h3-text2: #c8c8d0;
+    --h3-text: #dddddd;
+    --h3-thumb: #e8e8ec;
+    --h3-thumb-hi: #ffffff;
+    --h3-on-accent: #111111;
+    --h3-on-danger: #ffffff;
+    --h3-accent: #ffaa33;
+    --h3-accent-text: #ffaa33;
+    --h3-accent-hi: #ffbb55;
+    --h3-accent-dim: #8a6a33;
+    --h3-accent-dim-fg: #cccccc;
+    --h3-accent-2: #a08050;
+    --h3-accent-soft: rgba(255,170,51,0.18);
+    --h3-danger-bg: #7a2b2b;
+    --h3-danger-border: #a04040;
+    --h3-danger-bg2: #3a2b2b;
+    --h3-danger-border2: #7a4040;
+    --h3-danger-bg3: #5a3232;
+    --h3-danger-text: #e0b0b0;
+    --h3-shadow: rgba(0,0,0,0.6);
+    --h3-caption-bg: rgba(20,20,24,0.86);
+    --h3-veil: rgba(0,0,0,0.55);   /* 同上（ダーク）*/
+}
+
+/* ============================================================
+   1. ベース
+   ============================================================ */
+.gradio-container, .gradio-container * {
+    font-family: '__FONT__', -apple-system, BlinkMacSystemFont,
+                 'Hiragino Sans', 'Noto Sans JP', sans-serif !important;
+}
+.gradio-container {
+    --color-accent: var(--h3-accent) !important;
+    background-color: var(--h3-bg) !important;
+}
+.gradio-container textarea, .gradio-container input[type="number"] {
+    font-feature-settings: "tnum" 1 !important;
+}
+
+/* ============================================================
+   2. パネル（RECENTボックスを基準トーンとする）
+   ============================================================ */
+/* ⚠️🔴 **`gr.Column(elem_classes=[...])` は Gradio 6.26 では DOM に付かない**（実測。
+   `.panel` の付いた要素は0個。`gr.Accordion` の elem_classes は付く）。
+   つまり `.panel` の指定は**効いていない**。箱に見せたいものは**必ず id を並べる**こと。 */
+.panel, #recent-panel, #mode-prompt-panel, #batch-panel, #status-panel,
+#lora-status-panel {
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    background: var(--h3-panel) !important; padding: 10px 12px !important;
+}
+.panel > .form, .panel .block {
+    background: none !important; border: none !important;
+    padding: 0 !important; min-height: 0 !important; box-shadow: none !important;
+}
+.panel input, .panel textarea, .panel .wrap-inner, .panel select {
+    font-size: 13px !important; color: var(--h3-text) !important; letter-spacing: 0 !important;
+}
+
+/* 角の丸みをそろえる（2026-09-04 / 利用者指摘）。
+   幅・Seed・Refiner・Turbo・LIBRARY の PREVIEW・SEGMENTS の右側だけ角張って見えていた。
+   🔴 これらの箱を描いているのは**枠を持つ列ではなく Gradio の `.form` / `.block`**
+      （`elem_classes=["panel"]` は 6.26 では DOM に付かないので、列側の指定は死んでいる）。
+      なので **border や background は足さない**。足すと箱が二重になる
+      （`#tstr-panel` で一度踏んだ罠）。**丸みだけ**を上書きする。
+   基準は Steps の箱（`#tstr-panel` の 8px）。 */
+#wh-col .form, #wh-col > .block,
+#seed-panel .form, #seed-panel > .block,
+#lora-group .form, #lora-group > .block,
+#lib-preview-box .form, #lib-preview-box > .block,
+#seg-preview-box .form, #seg-preview-box > .block {
+    border-radius: 8px !important;
+}
+
+/* アコーディオン */
+.panel-acc {
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    background: var(--h3-panel) !important; padding: 0 !important;
+}
+.panel-acc > .label-wrap, .panel-acc > button { padding: 10px 12px !important; }
+.panel-acc > div:not(.label-wrap) { padding: 0 12px 12px 12px !important; }
+
+/* パネル内側のフラット化（枠が二重に見えないように） */
+#mode-prompt-panel *, #batch-panel *, #status-panel *,
+#lora-status-panel * { box-shadow: none !important; }
+#mode-prompt-panel .block, #mode-prompt-panel .form, #mode-prompt-panel > div,
+#batch-panel .block, #batch-panel .form, #batch-panel > div,
+#status-panel .block, #status-panel .form, #status-panel > div,
+#lora-status-panel .block, #lora-status-panel .form, #lora-status-panel > div {
+    background: none !important; background-color: transparent !important;
+    border: none !important; padding: 0 !important; margin: 0 !important;
+    min-height: 0 !important;
+}
+/* PROMPT は入力欄なので枠を残す */
+#mode-prompt-panel textarea {
+    background: var(--h3-bg) !important;
+    border: 1px solid var(--h3-border) !important; border-radius: 6px !important;
+    padding: 8px 10px !important; margin-top: 4px !important;
+}
+/* STATUS は読み取り専用。内側の枠を消して1枚のボックスに見せる */
+#status-panel textarea {
+    background: transparent !important;
+    border: none !important; box-shadow: none !important;
+    padding: 4px 0 0 0 !important; margin: 0 !important;
+    resize: none !important;
+    color: var(--h3-text3) !important; font-size: 12px !important; line-height: 1.6 !important;
+}
+#status-panel textarea:focus {
+    outline: none !important; border: none !important; box-shadow: none !important;
+}
+/* ⚠️ STATUS に高さ制限は**入れない**。バッチ4本でも全部表示されることを実機で確認済み。
+   頭を押さえると、いま見えているものにスクロールバーを足すだけの改悪になる。 */
+
+/* ============================================================
+   3. レイアウト間隔
+   ============================================================ */
+/* ⚠️ gr.Tab(id="tab-create") の id は DOM の id にならないので #tab-create は使えない。
+   箱の間隔は Gradio 既定の --layout-gap（16px）に任せる */
+#mode-prompt-panel, #batch-panel, #preview-box,
+#status-panel, #recent-panel, #lora-status-panel, .panel-acc {
+    margin: 0 !important;
+}
+
+/* ============================================================
+   4. 共通アイコンボタン
+   ============================================================ */
+.icon-btn {
+    flex: 0 0 auto !important;
+    width: 38px !important; min-width: 38px !important; max-width: 38px !important;
+    height: 38px !important; padding: 0 !important;
+    background: var(--h3-elev) !important;
+    border: 1px solid var(--h3-border2) !important; border-radius: 6px !important;
+    color: var(--h3-text) !important; font-size: 16px !important; line-height: 1 !important;
+    box-shadow: none !important;
+}
+.icon-btn:hover { background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; }
+
+/* ============================================================
+   5. ヘッダー（タイトル + VRAM/RAM を1要素で組む）
+   ============================================================ */
+#header-row {
+    align-items: center !important; gap: 8px !important;
+    flex-wrap: nowrap !important; margin-bottom: 6px !important;
+}
+#header-row > *:first-child { flex: 1 1 auto !important; min-width: 0 !important; }
+#header-row > *:not(:first-child) { flex: 0 0 auto !important; }
+#theme-btn {
+    width: auto !important; min-width: 62px !important;
+    height: 28px !important; padding: 0 10px !important;
+    background: var(--h3-elev) !important;
+    border: 1px solid var(--h3-border2) !important; border-radius: 6px !important;
+    color: var(--h3-muted) !important; font-size: 10px !important; line-height: 1 !important;
+    letter-spacing: 0.16em !important; font-weight: 400 !important;
+    box-shadow: none !important;
+}
+#lang-dd {
+    width: 108px !important; min-width: 108px !important; margin: 0 !important;
+}
+#lang-dd .wrap-inner, #lang-dd .single-select, #lang-dd input {
+    font-size: 11px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important;
+}
+#lang-dd .container, #lang-dd .block {
+    background: var(--h3-elev) !important;
+    border: 1px solid var(--h3-border2) !important; border-radius: 6px !important;
+    padding: 0 !important; min-height: 0 !important;
+}
+#theme-btn:hover {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important;
+    color: var(--h3-text) !important;
+}
+#header-bar { margin-bottom: 0 !important; }
+#header-bar .hdr {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; width: 100%;
+}
+#header-bar .hdr-title {
+    white-space: nowrap;
+    color: var(--h3-title) !important; font-weight: 500 !important;
+    font-size: 20px !important; letter-spacing: 0.16em !important;
+}
+#header-bar .hdr-hud {
+    white-space: nowrap;
+    color: var(--h3-muted) !important; font-size: 12px !important; letter-spacing: 0.04em !important;
+}
+
+/* ============================================================
+   6. CREATE: 生成モード / 基本設定
+   ============================================================ */
+#mode-row { margin: 0 !important; padding: 0 !important; }
+#mode-row .wrap, #mode-row fieldset > div {
+    display: flex !important; flex-wrap: wrap !important;
+    justify-content: flex-start !important; gap: 8px !important;
+}
+#mode-prompt-panel > div:first-child { margin-bottom: 8px !important; }
+
+#wh-col { position: relative !important; }
+#wh-col .block { padding-right: 50px !important; }
+/* 🆕 2026-10-01 幅・高さのスライダーを右の Steps・尺と同じ高さに揃える（利用者: 少しずれている）。
+   左は Gradio 既定（.block の上下 10px・.form の gap 0 → 1 本目が 2px 上、行の間隔が 4px 広い）、
+   右の #tstr-panel は「箱の内側 12px・間隔 14px・ラベル下 2px」。左も同じ数字にする
+   （実測: 修正前 スライダー 111/180.6 対 115/180.6 → 修正後 115/180.6 で一致）。 */
+/* ⚠️ Gradio の .form は地が枠色で、gap と余白がその色の帯に見える → 箱の塗りを #tstr-panel と同じにする */
+#wh-col .form { padding-top: 12px !important; padding-bottom: 12px !important; gap: 14px !important;
+                background: var(--block-background-fill, var(--h3-panel)) !important; }
+#wh-col .form > .block { padding-top: 0 !important; padding-bottom: 0 !important; }
+#wh-col .form label { margin-bottom: 2px !important; }
+#swap-row {
+    position: absolute !important; right: 10px !important; top: 38% !important;
+    transform: translateY(-50%) !important;
+    width: auto !important; min-width: 0 !important;
+    margin: 0 !important; padding: 0 !important; z-index: 5 !important;
+}
+#swap-btn {
+    width: 34px !important; min-width: 34px !important; max-width: 34px !important;
+    height: 28px !important; padding: 0 !important;
+    background: var(--h3-bg) !important;
+    border: 1px solid var(--h3-accent) !important; border-radius: 6px !important;
+    color: var(--h3-accent-text) !important; font-size: 14px !important;
+}
+#swap-btn:hover { background: var(--h3-accent) !important; color: var(--h3-on-accent) !important; }
+
+/* Seedパネル（ボタンは入力欄に重ねる） */
+/* 左カラムを行の高さまで伸ばし、余りは LOAD PARAMETERS が吸収して下端を揃える。
+   箱の間隔は Gradio 既定の gap（16px）に任せ、margin では作らない */
+#whseed-col {
+    display: flex !important; flex-direction: column !important;
+    align-self: stretch !important;
+}
+#whseed-col > * { flex: 0 0 auto !important; margin: 0 !important; }
+#seed-panel {
+    flex: 0 0 auto !important;
+    padding: 0 !important;
+    position: relative !important;
+}
+#seed-panel input[type="number"] { padding-right: 92px !important; }
+#seed-btn-row {
+    position: absolute !important; right: 16px !important;
+    top: 40px !important; bottom: auto !important;
+    width: auto !important; min-width: 0 !important;
+    gap: 6px !important; margin: 0 !important; padding: 0 !important;
+    flex-wrap: nowrap !important; z-index: 5 !important;
+}
+#seed-btn-row > * { flex: 0 0 auto !important; min-width: 0 !important; }
+#seed-random-btn, #seed-recycle-btn {
+    width: 34px !important; min-width: 34px !important; max-width: 34px !important;
+    height: 34px !important; margin: 0 !important; transform: none !important;
+}
+
+/* 右カラムも行の高さまで伸ばし、余りは Turbo LoRA が吸収する。
+   こうしておくと META_MIN_H_PX を上げても、どちらの側にも隙間が空かない */
+#tstr-col {
+    display: flex !important; flex-direction: column !important;
+    align-self: stretch !important;
+}
+#tstr-col > * { flex: 0 0 auto !important; margin: 0 !important; }
+/* 🔴 Turbo LoRA には余りを吸わせない（2026-09-04 / 利用者指摘）。
+   吸わせると**列の div だけが伸びて、箱を描いている中の `.form` は伸びない**ので、
+   箱の下に空きが残り、LOAD PARAMETERS との間だけ広く見えていた。
+   余りは下の `#meta-panel`（枠なし。中の `#meta-drop` が伸びる）に全部渡す。 */
+#lora-group { flex: 0 0 auto !important; }
+#lora-dd { margin: 0 !important; }
+
+#generate-btn {
+    background-color: var(--h3-accent) !important; color: var(--h3-on-accent) !important;
+    border: none !important; border-radius: 8px !important;
+    padding: 10px 16px !important; font-size: 15px !important; font-weight: 700 !important;
+    width: 100% !important; min-height: unset !important; height: 48px !important;
+    letter-spacing: 0.10em !important;
+}
+#generate-btn:hover { background-color: var(--h3-accent-hi) !important; }
+#generate-btn:disabled {
+    background-color: var(--h3-accent-dim) !important; color: var(--h3-accent-dim-fg) !important; cursor: wait !important;
+}
+#gen-row { gap: 6px !important; flex-wrap: nowrap !important; margin: 0 !important; }
+#gen-row > * { min-width: 0 !important; }
+#cancel-btn {
+    flex: 0 0 118px !important; width: 118px !important;
+    height: 48px !important; padding: 0 !important;
+    background: var(--h3-danger-bg2) !important; border: 1px solid var(--h3-danger-border2) !important;
+    border-radius: 8px !important; color: var(--h3-danger-text) !important;
+    font-size: 12px !important; font-weight: 700 !important; letter-spacing: 0.10em !important;
+}
+#cancel-btn:hover { background: var(--h3-danger-bg3) !important; border-color: var(--h3-danger-border) !important; color: var(--h3-on-danger) !important; }
+
+/* ============================================================
+   7. LOAD PARAMETERS（PNG INFO 相当の読み込み欄）
+   ============================================================ */
+/* 左カラムの余りをここが吸収し、右カラム（Turbo LoRA）と下端を揃える。
+   これで下端が Turbo LoRA とそろう */
+/* min-height を持たせると左カラムが行の高さを決めてしまい、右カラムと下端がずれる。
+   ここは 0 にして「余りを吸収するだけ」に徹させる。下限はドロップ枠側だけに持たせる */
+#meta-panel {
+    flex: 1 1 auto !important;
+    display: flex !important; flex-direction: column !important;
+    padding: 0 !important; border: none !important; background: transparent !important;
+    min-height: 0 !important;
+}
+#meta-panel > *, #meta-panel > div > div {
+    width: 100% !important; gap: 0 !important; margin: 0 !important;
+    padding: 0 !important; min-height: 0 !important;
+}
+#meta-panel .block, #meta-panel .form, #meta-panel label {
+    margin: 0 !important;
+}
+#meta-drop {
+    flex: 1 1 auto !important;
+    display: flex !important; flex-direction: column !important;
+    border: 1px dashed var(--h3-border2) !important; border-radius: 8px !important;
+    margin: 0 !important; padding: 0 !important; width: 100% !important;
+    min-height: __META_MIN_H__px !important; height: auto !important;
+}
+#meta-drop .block, #meta-drop .wrap.default {
+    flex: 1 1 auto !important;
+    height: auto !important; min-height: 0 !important; padding: 4px !important;
+}
+#meta-drop button.center, #meta-drop button.boundedheight {
+    height: 100% !important; min-height: __META_MIN_H__px !important;
+    max-height: none !important; padding: 4px !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+}
+#meta-drop button > .wrap {
+    height: auto !important; min-height: 0 !important; gap: 2px !important; padding: 0 !important;
+}
+#meta-drop .icon-wrap { height: 22px !important; }
+#meta-drop .icon-wrap svg { width: 22px !important; height: 22px !important; }
+/* ⚠️ 読み込み結果は **STATUS に一本化**した（利用者判断 2026-08-26）。
+   基本設定の下にもう1つ情報の出口を作らないこと。#meta-info は廃止 */
+
+/* ============================================================
+   8. ギャラリー
+   DOM: .gallery-container > .grid-wrap.fixed-height > .grid-container
+          > .gallery-item > button.thumbnail-item > img
+   ============================================================ */
+#batch-strip, #recent-gallery, #lib-grid {
+    border: none !important; background: transparent !important;
+    padding: 0 !important; margin: 0 !important;
+}
+#batch-strip .block, #recent-gallery .block, #lib-grid .block,
+#batch-strip .gallery-container, #recent-gallery .gallery-container,
+#lib-grid .gallery-container {
+    padding: 0 !important; margin: 0 !important;
+    min-height: 0 !important; border: none !important; background: none !important;
+}
+#batch-strip .grid-wrap, #recent-gallery .grid-wrap, #lib-grid .grid-wrap,
+#batch-strip .grid-wrap.fixed-height, #recent-gallery .grid-wrap.fixed-height,
+#lib-grid .grid-wrap.fixed-height {
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    overflow: visible !important; padding: 0 !important; margin: 0 !important;
+}
+#batch-strip .grid-container, #recent-gallery .grid-container, #lib-grid .grid-container {
+    display: grid !important;
+    grid-auto-rows: max-content !important;
+    align-content: start !important; align-items: start !important;
+    height: auto !important;
+    row-gap: __GGAP__px !important; column-gap: __GGAP__px !important;
+    padding: 0 !important; margin: 0 !important; overflow: visible !important;
+}
+#batch-strip .grid-container    { grid-template-columns: repeat(__BATCH_COLS__, 1fr) !important; }
+#recent-gallery .grid-container { grid-template-columns: repeat(__RECENT_COLS__, 1fr) !important; }
+#lib-grid .grid-container       { grid-template-columns: repeat(__LIB_COLS__, 1fr) !important; }
+
+#batch-strip .gallery-item, #recent-gallery .gallery-item, #lib-grid .gallery-item {
+    width: 100% !important; height: auto !important;
+    align-self: start !important; margin: 0 !important; padding: 0 !important;
+}
+#batch-strip .thumbnail-item, #recent-gallery .thumbnail-item, #lib-grid .thumbnail-item {
+    width: 100% !important; height: auto !important;
+    aspect-ratio: 1 / 1 !important;
+    border-radius: 6px !important; overflow: hidden !important;
+    padding: 0 !important; margin: 0 !important;
+    border: 1px solid var(--h3-border) !important;
+}
+#batch-strip img, #recent-gallery img, #lib-grid img {
+    width: 100% !important; height: 100% !important;
+    aspect-ratio: 1 / 1 !important;
+    object-fit: cover !important; border-radius: 6px !important;
+    display: block !important;
+}
+#batch-strip .thumbnail-item.selected, #recent-gallery .thumbnail-item.selected,
+#lib-grid .thumbnail-item.selected {
+    outline: 2px solid var(--h3-accent) !important; outline-offset: -2px !important;
+    border-color: var(--h3-accent) !important;
+}
+#batch-strip .icon-button-wrapper, #recent-gallery .icon-button-wrapper,
+#lib-grid .icon-button-wrapper,
+#batch-strip .caption-label, #recent-gallery .caption-label, #lib-grid .caption-label,
+#batch-strip .empty, #recent-gallery .empty, #lib-grid .empty,
+#batch-strip .wrap.default, #recent-gallery .wrap.default, #lib-grid .wrap.default {
+    display: none !important;
+}
+/* 画像が無いあいだはバッチ帯ごと隠す（:has() は必ず単独規則にする） */
+#batch-strip:not(:has(img)) { display: none !important; }
+
+/* ============================================================
+   9. プレビュー / RECENT
+   ============================================================ */
+#preview-box {
+    padding: 0 !important; gap: __GGAP__px !important;
+    border: none !important; background: transparent !important;
+}
+#preview-box > * { width: 100% !important; }
+#preview-box > *:first-child, #preview-box > *:first-child .block {
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    background: var(--h3-panel) !important; padding: 0 !important;
+}
+#recent-panel > * { width: 100% !important; }
+#recent-label p { margin: 0 0 6px 0 !important; }
+
+/* ============================================================
+   10. LIBRARY
+   ============================================================ */
+#lib-bar { align-items: center !important; gap: 8px !important; }
+#lib-info p { margin: 0 !important; }
+#lib-preview-box { padding: 10px 12px !important; margin-top: 24px !important; }
+#lib-load-btn, #recent-load-btn {
+    width: 100% !important; height: 34px !important; margin-top: 8px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.16em !important; font-weight: 400 !important;
+}
+#lib-load-btn:hover:not(:disabled), #recent-load-btn:hover:not(:disabled) {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
+}
+#lib-load-btn:disabled, #recent-load-btn:disabled {
+    opacity: 0.35 !important; cursor: not-allowed !important;
+}
+#pager-row {
+    justify-content: center !important; gap: 5px !important;
+    flex-wrap: nowrap !important; margin-top: 10px !important;
+}
+#pager-row > * { flex: 0 0 auto !important; }
+.pager-btn {
+    min-width: 40px !important; max-width: 52px !important;
+    height: 34px !important; padding: 0 !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-text) !important; font-size: 13px !important;
+}
+.pager-btn:hover { background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; }
+/* 現在ページ（interactive=False で表現） */
+#pager-row .pager-btn:disabled {
+    background: var(--h3-accent) !important; border-color: var(--h3-accent) !important;
+    color: var(--h3-on-accent) !important; font-weight: 700 !important;
+    opacity: 1 !important; cursor: default !important;
+}
+/* 先頭/末尾で無効化される « ‹ › » は従来どおり淡く */
+#pager-row > *:first-child:disabled, #pager-row > *:nth-child(2):disabled,
+#pager-row > *:nth-last-child(1):disabled, #pager-row > *:nth-last-child(2):disabled {
+    background: var(--h3-elev) !important; border-color: var(--h3-border2) !important;
+    color: var(--h3-text) !important; font-weight: 400 !important;
+    opacity: 0.35 !important; cursor: not-allowed !important;
+}
+
+/* ============================================================
+   11. Ref2VA 参照リスト
+   ============================================================ */
+#ref-drop-row { align-items: center !important; gap: 8px !important; }
+#ref-drop, #refmod-drop { border: 1px dashed var(--h3-border3) !important; border-radius: 8px !important; }
+#refmod-drop { margin-top: 0 !important; }      /* 箱の間は --layout-gap（16px）にそろえる */
+#refmod-drop-msg:not(:has(.md > *)) { display: none !important; }
+#refmod-drop-msg p { font-size: 12px !important; color: var(--h3-muted) !important; margin: 4px 0 0 0 !important; }
+/* 🆕 2026-10-01 種類ごとの見出し行: 左に「🖼 画像 n / 9」、右端に「すべて外す」（RefMod のピッカーと同じ字・下線の文字リンク）*/
+[id^="ref-head-row-"] { align-items: flex-end !important; justify-content: space-between !important;
+                        flex-wrap: nowrap !important; gap: 8px !important; }
+[id^="ref-head-row-"] > .ref-head { flex: 1 1 auto !important; min-width: 0 !important; }
+[id^="ref-clr-"] {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; height: auto !important;
+    background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 0 2px 0 !important;
+    font-size: 12px !important; color: var(--h3-muted) !important; font-weight: 400 !important;
+    letter-spacing: 0.04em !important; text-decoration: underline !important; text-underline-offset: 2px !important;
+}
+[id^="ref-clr-"]:hover { color: var(--h3-text3) !important; background: none !important; }
+.ref-head p, .gradio-container .ref-head p, .ref-head * {
+    margin: 8px 0 2px 0 !important; font-size: 13px !important;
+    color: var(--h3-muted) !important; font-weight: 400 !important; letter-spacing: 0.04em !important;
+}
+.ref-slot {
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    padding: 6px !important; background: var(--h3-panel) !important;
+}
+.ref-slot .block { padding: 0 !important; min-height: 0 !important; border: none !important; }
+/* ⚠️ ファイル名は**中央そろえ**にする（利用者判断 2026-08-26）。
+   画像は枠の中で中央に置かれるのに、名前だけ左端に出ていて対応が読み取れなかった。
+   text-align は入れ子の p まで届かないので、包みと p の両方に指定する */
+.ref-slot .ref-cap, .gradio-container .ref-cap { text-align: center !important; }
+.ref-slot .ref-cap p, .gradio-container .ref-cap p, .ref-cap, .ref-cap * {
+    margin: 2px 0 0 0 !important; font-size: 12px !important;
+    color: var(--h3-muted) !important; font-weight: 400 !important; letter-spacing: 0.02em !important;
+    white-space: nowrap !important; overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    text-align: center !important;
+}
+/* 念のための保険。何かの拍子に Markdown が箇条書きとして組んでも左へずれないように */
+.ref-cap ol, .ref-cap ul {
+    margin: 0 !important; padding: 0 !important; list-style: none !important;
+}
+/* ---- ドラッグ＆ドロップでの並べ替え ---- */
+#ref-dnd { display: none !important; }          /* 受け渡し用。見せない */
+#lora-sort, #cl-sort { display: none !important; }   /* 並べ替えの受け渡し用 */
+.ref-slot { cursor: grab !important; }
+.ref-slot:active { cursor: grabbing !important; }
+.ref-slot.ref-dragging { opacity: 0.45 !important; }
+.ref-slot.ref-drag-over {
+    border-color: var(--h3-accent) !important;
+    box-shadow: 0 0 0 2px var(--h3-accent-soft) inset !important;
+}
+.ref-ctl-row { gap: 4px !important; justify-content: center !important; margin-top: 4px !important; }
+.ref-ctl-row > * { flex: 0 0 auto !important; }
+.ref-btn {
+    width: 30px !important; min-width: 30px !important; max-width: 30px !important;
+    height: 30px !important; padding: 0 !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-text) !important; font-size: 12px !important;
+    box-shadow: none !important;
+}
+.ref-btn:hover { background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; }
+.ref-del:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important; }
+
+/* ============================================================
+   11.4 LORA タブ（ファイラー）
+   ============================================================ */
+/* 検索ボックス / ラジオ / 🔄 は高さが違うので、中央にそろえる。
+   Gradio は各部品を余白つきの div で包むため、その余白も潰さないと揃わない */
+#lora-bar, #cl-bar { align-items: center !important; gap: 8px !important; }
+/* ⚠️ **箱が二重に見える犯人は `.form`。** Gradio 6 は隣り合う入力部品（Textbox・Radio など）を
+   1枚の `.form` にまとめ、そこに枠と背景を描く。検索欄とラジオが並ぶ行では、
+   アコーディオンの枠の内側にもう1つ箱が出てしまうので、`.form` を透明にして
+   枠は検索欄自身にだけ持たせる（`#motion-group .form` で踏んだのと同じ罠）*/
+#cl-bar .form, #lora-bar .form, #seg-bar .form, #lib-bar .form, #sys-bar .form {
+    display: flex !important; align-items: center !important;
+    gap: 8px !important; padding: 0 !important; margin: 0 !important;
+    background: none !important; background-color: transparent !important;
+    border: 0 !important; box-shadow: none !important; min-height: 0 !important;
+}
+#cl-bar .form > *, #lora-bar .form > *, #seg-bar .form > *,
+#lib-bar .form > *, #sys-bar .form > * {
+    background: none !important; background-color: transparent !important;
+    border: 0 !important; box-shadow: none !important; margin: 0 !important;
+    padding: 0 !important; min-height: 0 !important;
+}
+/* 検索欄は入力なので枠を残す。高さをラジオとそろえる。
+   ⚠️ Gradio の Textbox は textarea で描かれるので、**折り返しを切らないと2行になる** */
+#cl-query input, #lora-query input,
+#cl-query textarea, #lora-query textarea {
+    height: 34px !important; min-height: 34px !important; max-height: 34px !important;
+    padding: 7px 10px !important; line-height: 20px !important;
+    white-space: nowrap !important; overflow-x: auto !important; overflow-y: hidden !important;
+    resize: none !important;
+}
+/* ラジオはピル状のまま中央にそろえ、行の下に余白を入れて一覧と離す */
+#cl-view .wrap, #lora-view .wrap,
+#cl-view fieldset > div, #lora-view fieldset > div {
+    display: flex !important; align-items: center !important;
+    gap: 8px !important; flex-wrap: nowrap !important;
+}
+/* 検索欄が伸び、ラジオと🔄は自分の幅のまま。ラジオの文字は折り返させない。
+   幅が足りないときは「検索欄」→「ラジオ＋🔄」の2行に折り返す（🔄 だけが余るのを防ぐ）*/
+/* ⚠️ **常に1行に保つ。** 行の直接の子は「.form（検索欄＋ラジオ）」と「🔄」の2つ。
+   どちらも折り返さず、幅が足りないときは**検索欄だけが縮む**（min-width: 0 が要る。
+   flex の既定 min-width:auto のままだと中身の幅で突っ張って折り返してしまう）*/
+#cl-bar, #lora-bar {
+    flex-wrap: nowrap !important; align-items: center !important;
+    width: 100% !important;
+    overflow-x: auto !important;      /* 極端に狭いときは折り返さず横スクロール */
+}
+/* ⚠️ **`width: 100%` を明示する。** flex-grow だけだと .form が中身の幅のままになり、
+   検索欄が小さいまま右側に大きな余白ができた（2026-08-26 の指摘） */
+#cl-bar .form, #lora-bar .form {
+    flex: 1 1 auto !important; flex-wrap: nowrap !important;
+    width: 100% !important; min-width: 0 !important;
+    align-items: center !important;
+}
+/* 伸び縮みするのは検索欄だけ。ただし潰れないように下限を持たせる（0 まで潰れて消えたことがある）*/
+#cl-query, #lora-query {
+    flex: 1 1 auto !important; width: auto !important; min-width: 120px !important;
+}
+/* ⚠️ ラジオ（fieldset）は Gradio が width:100% にしているので、**幅を content に戻す**。
+   これをやらないと、ラジオが行いっぱいに広がって検索欄が下限まで潰れる */
+#cl-view, #lora-view {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important;
+}
+#cl-query .block, #lora-query .block,
+#cl-query label, #lora-query label,
+#cl-query .wrap, #lora-query .wrap { height: auto !important; min-height: 0 !important; }
+/* 🔄 だけ灰色だと浮くので、アイコン/リストのボタンと同じ白基調にそろえる */
+#cl-bar .icon-btn, #lora-bar .icon-btn {
+    flex: 0 0 38px !important; margin-top: 0 !important;
+    background: var(--h3-icon-btn) !important;
+    border: 1px solid var(--h3-border2) !important;
+    color: var(--h3-muted) !important;
+}
+#cl-bar .icon-btn:hover, #lora-bar .icon-btn:hover {
+    background: var(--h3-elev) !important; border-color: var(--h3-border-hover) !important;
+    color: var(--h3-text) !important;
+}
+#cl-view label, #lora-view label,
+#cl-view label span, #lora-view label span {
+    white-space: nowrap !important;
+}
+#cl-bar { margin-bottom: 10px !important; }
+#lora-bar { margin-bottom: 10px !important; }
+#lora-bar { margin-bottom: 8px !important; }
+/* フォルダチップ（LORA_DIR のサブフォルダ）。ラジオをピル型のチップ列に見せる */
+#lora-folders, #cl-folders {
+    margin: 0 0 8px 0 !important; padding: 0 !important;
+    border: none !important; background: transparent !important;
+}
+#lora-folders .wrap, #cl-folders .wrap,
+#lora-folders fieldset > div, #cl-folders fieldset > div {
+    display: flex !important; flex-wrap: wrap !important; gap: 6px !important;
+}
+#lora-folders label, #cl-folders label {
+    border: 1px solid var(--h3-border2) !important; border-radius: 999px !important;
+    padding: 1px 11px !important; margin: 0 !important; cursor: pointer !important;
+    background: transparent !important; box-shadow: none !important;
+}
+#lora-folders label span, #cl-folders label span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+}
+#lora-folders label:hover, #cl-folders label:hover {
+    border-color: var(--h3-border-hover) !important;
+}
+/* 選択中。Gradio は選択ラベルに .selected を付けるが、版差に備えて :has も併記 */
+#lora-folders label.selected, #cl-folders label.selected,
+#lora-folders label:has(input:checked), #cl-folders label:has(input:checked) {
+    background: var(--h3-accent) !important; border-color: var(--h3-accent) !important;
+}
+#lora-folders label.selected span, #cl-folders label.selected span,
+#lora-folders label:has(input:checked) span, #cl-folders label:has(input:checked) span {
+    color: #1a1a1a !important; font-weight: 600 !important;
+}
+#lora-folders input[type="radio"], #cl-folders input[type="radio"] {
+    display: none !important;
+}
+/* キーフレーム一覧（HTMLリスト + #kf-sync 経由の JS ブリッジ） */
+#kf-sync { display: none !important; }
+/* Keyframe の ON/OFF は Keyframe タブの**中身の先頭**に置く。
+   ⚠️ 見出し（ナビ）へ JS で移す形は消える事故が起きたのでやめた（KF_JS のコメント）。 */
+#kf-on {
+    width: auto !important; min-width: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    border: none !important; background: transparent !important;
+}
+#kf-on .block, #kf-on .form, #kf-on > div {
+    border: none !important; background: transparent !important;
+    padding: 0 !important; margin: 0 !important; min-height: 0 !important;
+}
+#kf-on label { margin: 0 !important; padding: 0 !important; }
+#kf-on .label-text {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important;
+}
+#kf-on input[type="checkbox"] { accent-color: var(--h3-accent) !important; }
+#lib-nav-note p { margin: 4px 0 0 0 !important; font-size: 11px !important;
+                  color: var(--h3-faint) !important; text-align: center !important; }
+/* PREVIEW の全画面。⚠️ 全画面にするのは**箱**で、中の <video> ではない。
+   <video> を全画面にすると、次のファイルへ移った瞬間に Gradio が中身を作り直して
+   全画面が解ける。箱なら中身が入れ替わっても維持される（Chromium で実測） */
+#lib-preview-box:fullscreen {
+    background: #000 !important; padding: 0 !important; border: none !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+}
+#lib-preview-box:fullscreen > * { width: 100% !important; height: 100% !important; }
+#lib-preview-box:fullscreen .block, #lib-preview-box:fullscreen .form {
+    height: 100% !important; border: none !important; background: #000 !important;
+}
+#lib-preview-box:fullscreen video, #lib-preview-box:fullscreen img {
+    width: 100% !important; height: 100% !important; max-height: 100vh !important;
+    object-fit: contain !important; background: #000 !important;
+}
+#lib-preview-box:fullscreen #lib-load-btn,
+#lib-preview-box:fullscreen #lib-up-btn,
+#lib-preview-box:fullscreen #lib-nav-note,
+/* 全画面では「PREVIEW」の見出しとダウンロードのボタンも隠す（映像だけを見せる） */
+#lib-preview-box:fullscreen [data-testid="block-label"],
+#lib-preview-box:fullscreen a[download] { display: none !important; }
+
+/* ---- ？ヘルプアイコン（説明が要る見出しの真横。ホバー / フォーカスでヒント）---- */
+/* ⚠️ アイコンの置き場所は **JS が見出しの中へ移す**（HELP_JS）。gr.HTML の箱自体は隠す。
+   ⚠️ ヒントは **body 直下に複製して position:fixed で出す**。箱の中に置くと
+      アコーディオンの overflow で切れたり、隣の箱の文字と重なって読めなくなる（実機で発生） */
+.h3-help-box { display: none !important; }
+.h3-help {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 17px; height: 17px; border-radius: 50%; flex: none;
+    border: 1px solid var(--h3-border2); color: var(--h3-muted);
+    font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle;
+    cursor: help; user-select: none; background: var(--h3-panel);
+    margin: 0 0 0 7px; padding: 0;
+}
+.h3-help:hover, .h3-help:focus {
+    color: var(--h3-accent-2) !important; border-color: var(--h3-accent) !important;
+    outline: none !important;
+}
+.h3-help .h3-tip { display: none !important; }   /* 中身は body 側の複製で見せる */
+.h3-tip-live {
+    position: fixed; z-index: 99999; width: 390px; max-width: 84vw;
+    padding: 12px 14px; border-radius: 9px;
+    border: 1px solid var(--h3-border2); background: var(--h3-panel);
+    color: var(--h3-text2); font-size: 13.5px; font-weight: 400;
+    line-height: 1.8; text-align: left; white-space: normal;
+    box-shadow: 0 10px 34px var(--h3-shadow);
+}
+.h3-tip-live b { color: var(--h3-text); }
+.h3-tip-live .h3-tip-p { display: block; }
+.h3-tip-live .h3-tip-p + .h3-tip-p { margin-top: 7px; }   /* 段落の間（
+）は少し空ける */
+/* LOAD PARAMETERS のラベルはドロップ枠の下に潜っている。？だけ拾えるように前に出す
+   （ラベルの他の場所はこれまで通りドロップ枠がクリックを受け取る） */
+#meta-drop label { z-index: 6 !important; pointer-events: none !important; }
+#meta-drop label .h3-help { pointer-events: auto !important; position: relative; z-index: 7; }
+#kf-hint p { margin: 0 0 8px 0 !important; font-size: 12px !important; color: var(--h3-muted) !important; }
+/* ── Keyframe タブ（2026-09-15 タイムライン式）────────────────────────────── */
+/* 16:9 固定のプレビュー。中身は object-fit: contain（比率が違えばレターボックス） */
+#kf-preview .kf-prevbox {
+    position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000;
+    border-radius: 10px; overflow: hidden; border: 1px solid var(--h3-border);
+}
+#kf-preview .kf-prev-still, #kf-preview .kf-prev-video {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000;
+}
+#kf-preview .kf-prev-none {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--h3-faint); font-size: 12px; letter-spacing: 0.1em;
+}
+#kf-preview .kf-prev-video[hidden] { display: none !important; }
+/* JS が持つ動画（#kf-preview 直下）。箱と同じ位置・同じ角丸で上に重ねる */
+#kf-preview { position: relative !important; }
+#kf-preview > video.kf-prev-video {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    background: #000; border-radius: 10px; border: 1px solid var(--h3-border); box-sizing: border-box; z-index: 1;
+}
+/* 1 行のタイムライン */
+#kf-list .kf-tl { position: relative; margin: 0; user-select: none; -webkit-user-select: none; }   /* 段の間は列の gap（基本設定と同じ）に任せる（2026-09-15 利用者指示） */
+#kf-list .kf-tl-track {
+    position: relative; height: 84px; border: 1px solid var(--h3-border); border-radius: 10px;
+    background: var(--h3-kf-track, var(--h3-elev)); margin: 0;   /* タイムラインだけ薄いグレー（2026-09-15 利用者指示。他の箱と見分ける）。幅はプレビューと同じ。アイコンは内側に収める */
+    touch-action: none; overflow: hidden;
+}
+#kf-list .kf-tick {
+    position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--h3-border2);
+    transform: translateX(-0.5px); pointer-events: none;
+}
+#kf-list .kf-tick i { position: absolute; top: 2px; left: 3px; font-style: normal; font-size: 10px; color: var(--h3-faint); white-space: nowrap; }
+#kf-list .kf-tick:last-child i { left: auto; right: 3px; }
+#kf-list .kf-ic {
+    position: absolute; top: 8px; width: 56px; height: 56px; margin-left: -28px;
+    border-radius: 8px; overflow: visible; cursor: grab; z-index: 2;
+    box-shadow: 0 1px 4px var(--h3-shadow);
+    transition: box-shadow .12s;
+}
+#kf-list .kf-ic img, #kf-list .kf-ic .kf-ph {
+    display: block; width: 56px; height: 56px; object-fit: cover; border-radius: 8px;
+    border: 2px solid var(--h3-border2); background: var(--h3-border); box-sizing: border-box;
+}
+#kf-list .kf-ic.kf-sel img, #kf-list .kf-ic.kf-sel .kf-ph { border-color: var(--h3-accent); }
+#kf-list .kf-ic.kf-sel { z-index: 3; }
+#kf-list .kf-ic:active { cursor: grabbing; }
+/* ドラッグ中: 元のアイコンは半透明で track に残る（置き先の目安）。外へ出たら薄く沈める */
+#kf-list .kf-ic.kf-drag { opacity: 0.35; cursor: grabbing; z-index: 5; }
+#kf-list .kf-ic.kf-drag.kf-out { opacity: 0.15; }
+/* 指に付いてくる分身（body 直下・fixed）。常に半透明。track の外へ出ると × が重なる */
+.kf-ghost {
+    position: fixed; z-index: 10001; width: 56px; height: 56px; pointer-events: none;
+    opacity: 0.6; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 22px rgba(0,0,0,.35);
+    background: #888;
+}
+.kf-ghost img { width: 56px; height: 56px; object-fit: cover; display: block; }
+.kf-ghost.kf-out { opacity: 0.85; outline: 2px solid #e53935; }
+.kf-ghost.kf-out::after {
+    content: "✕"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(229, 57, 53, 0.55); color: #fff; font-size: 30px; font-weight: 700; text-shadow: 0 0 6px #000;
+}
+#kf-list .kf-ic-t {
+    position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%);
+    font-size: 10px; color: var(--h3-muted); white-space: nowrap; pointer-events: none;
+}
+#kf-list .kf-tl-drop {
+    display: none; margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; text-align: center;
+    font-size: 12px; letter-spacing: 0.04em;
+}
+#kf-list .kf-tl-drop { border: 1px dashed var(--h3-accent); color: var(--h3-accent); }
+#kf-list .kf-tl.kf-arm-drop .kf-tl-drop { display: block; }
+#kf-list .kf-tl.kf-arm-drop .kf-tl-track { border-color: var(--h3-accent); box-shadow: inset 0 0 0 1px var(--h3-accent); }
+/* ドロップ直後の仮アイコン（読み込み中）。掴めない・吹き出しも出ない */
+#kf-list .kf-ic.kf-loading { pointer-events: none; cursor: default; opacity: 0.85; }
+#kf-list .kf-ic.kf-loading .kf-ph { display: flex; align-items: center; justify-content: center; border-style: dashed; }
+#kf-list .kf-ic.kf-loading .kf-ic-t { color: var(--h3-accent); }
+#kf-list .kf-spin {
+    width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--h3-border2); border-top-color: var(--h3-accent);
+    animation: kf-spin .8s linear infinite;
+}
+@keyframes kf-spin { to { transform: rotate(360deg); } }
+#kf-list .kf-tl-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--h3-faint); pointer-events: none;
+}
+/* 再生位置の縦線（JS が動画の timeupdate / スクラブで動かす）。アイコンより下、ドロップ線より上 */
+#kf-list .kf-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--h3-accent); opacity: 0.7; pointer-events: none; z-index: 1; will-change: left; }
+#kf-list .kf-tl-track { cursor: ew-resize; }
+/* ドロップ位置の縦線（JS が left を動かす） */
+#kf-list .kf-drop-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--h3-accent); margin-left: -1px; pointer-events: none; z-index: 4; }
+/* アイコンにホバーで出る吹き出し。🔴 body 直下に fixed で出す（#kf-list の中に置くと、下の Gradio の箱が
+   別の重なり文脈で上に描かれて文字が透けて見えた 2026-09-15）。吹き出しの上へマウスを移せる */
+.kf-pop {
+    position: fixed; z-index: 10002; width: 400px; max-width: calc(100vw - 16px); box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
+    border: 1px solid var(--h3-border); border-radius: 12px; background: var(--h3-elev);
+    box-shadow: 0 12px 34px var(--h3-shadow); cursor: default;
+}
+.kf-pop::before, .kf-pop::after {   /* アイコンとの隙間を埋める見えない橋（上に出しても下に出しても落ちない） */
+    content: ""; position: absolute; left: 0; right: 0; height: 12px;
+}
+.kf-pop::before { top: -12px; }
+.kf-pop::after { bottom: -12px; }
+/* 上段: サムネ（16:9）/ 名前・時刻 / ボタン */
+.kf-pop .kf-pop-top { display: flex; gap: 12px; align-items: center; }
+.kf-pop img { width: 128px; height: 72px; object-fit: cover; border-radius: 8px; flex: 0 0 128px; border: 1px solid var(--h3-border); }
+.kf-pop .kf-pop-body { min-width: 0; flex: 1 1 auto; }
+.kf-pop .kf-pop-name { font-size: 13px; color: var(--h3-text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* 文字色は他の部品と同じ（2026-09-15 利用者指摘: 濃すぎた） */
+.kf-pop .kf-pop-meta { font-size: 12px; color: var(--h3-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kf-pop .kf-pop-meta2 { font-size: 11.5px; color: var(--h3-muted); margin-top: 2px; }
+.kf-pop .kf-pop-btns { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+/* 下段: Strength。見出し行（Strength ＋ 全体に従う）、その下にスライダー 1 本 */
+.kf-pop .kf-pop-str { border-top: 1px solid var(--h3-border); padding-top: 10px; font-size: 12px; color: var(--h3-muted); }
+.kf-pop .kf-pop-str-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.kf-pop .kf-pop-str-t { color: var(--h3-muted); letter-spacing: 0.04em; }
+.kf-pop .kf-pop-str label { display: flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer; }
+.kf-pop .kf-pop-str input[type="checkbox"] { accent-color: var(--h3-accent); margin: 0; }
+.kf-pop .kf-pop-str-r { display: flex; align-items: center; gap: 8px; }
+.kf-pop .kf-str { flex: 1 1 auto; min-width: 60px; accent-color: var(--h3-accent); cursor: pointer; margin: 0; }
+.kf-pop .kf-str-min { font-size: 11px; color: var(--h3-faint); font-variant-numeric: tabular-nums; }
+.kf-pop .kf-str-v { width: 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--h3-muted); }
+/* ドラッグ中は吹き出しも半透明で分身に付いてくる（触れない） */
+.kf-pop.kf-pop-drag { opacity: 0.55; pointer-events: none; transition: none; }
+/* 全体に従っている間はスライダーを薄く（触れば自動で外れる） */
+.kf-pop .kf-pop-str.kf-following .kf-str, .kf-pop .kf-pop-str.kf-following .kf-str-v { opacity: 0.45; }
+.kf-pop .kf-full, .kf-pop .kf-del {
+    height: 34px; width: 34px; line-height: 1; padding: 0; font-size: 16px;
+    border: 1px solid var(--h3-border2); border-radius: 8px; background: var(--h3-elev); color: var(--h3-muted); cursor: pointer;
+}
+.kf-pop .kf-del { color: var(--h3-muted); }
+.kf-pop .kf-del:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important; color: var(--h3-on-danger) !important; }
+#kf-list .kf-tl { padding-bottom: 0; }
+/* 全画面（JS が body 直下に出す） */
+.kf-fs { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.kf-fs img { max-width: 96vw; max-height: 96vh; object-fit: contain; }
+/* 幅をプレビューに揃える: HTML 部品の外箱の余白を消す */
+#kf-preview, #kf-list, #kf-preview .block, #kf-list .block,
+#kf-preview > div, #kf-list > div { padding: 0 !important; margin: 0 !important; border: none !important; background: transparent !important; }
+#kf-list { overflow: visible !important; }
+#kf-row2 { gap: var(--layout-gap, 12px) !important; margin-top: 0 !important; }
+#kf-col-str, #kf-col-on { padding: 0 !important; min-width: 0 !important; }
+/* 左右を入れ替え: 左 = Use Keyframe / fit / 要約、右 = Strength / 持続（2026-09-15 利用者指示。DOM は変えず order で） */
+#kf-col-on { order: 0 !important; }
+#kf-col-str { order: 1 !important; }
+/* Keyframe タブの段の間隔は基本設定と同じ（列の gap）。2026-09-15 利用者指示 */
+#ct-kf-panel > div { gap: var(--layout-gap, 12px) !important; }
+/* Strength / 持続の箱: 角の丸みを他の箱（8px）に揃える（2026-09-15 利用者指摘）。
+   箱を描いているのは Gradio の .form / .block なので丸みだけ上書き */
+#kf-col-str .form, #kf-col-str > .block, #kf-col-str .block { border-radius: 8px !important; }
+/* Strength と持続を**1 つの箱**に（2026-09-15 利用者指摘: 間に継ぎ目が見えた）。
+   箱を描くのは .form。子の block が持つ枠・影を消し、隙間は padding で取る（#motion-group と同じ流儀） */
+/* ⚠️ .form の背景は**枠の色**（#motion-group で踏んだ罠）。子を透明にすると箱全体が濃いグレーになる（2026-09-15 実機）。
+   → .form の背景を箱の内側の色にし、枠は border で描く。子にも同じ色を敷く */
+#kf-col-str .form {
+    gap: 0 !important; overflow: hidden !important;
+    background: var(--block-background-fill, var(--h3-panel)) !important;
+    background-color: var(--block-background-fill, var(--h3-panel)) !important;
+    border: 1px solid var(--h3-border) !important;
+}
+#kf-col-str .form > * {
+    border: 0 !important; border-width: 0 !important; border-color: transparent !important;
+    box-shadow: none !important; outline: none !important;
+    background: var(--block-background-fill, var(--h3-panel)) !important;
+    background-color: var(--block-background-fill, var(--h3-panel)) !important;
+}
+#kf-hold { margin-top: 0 !important; padding-top: 8px !important; }
+/* ON/OFF ＋ fit の箱（Strength の箱と同じ見た目・同じ高さ）。
+   Use Keyframe は Motion Context と同じ「左に文字、右端にチェック」（2026-09-15 利用者指示） */
+#kf-col-on {
+    display: flex !important; flex-direction: column !important;
+    align-items: stretch !important; justify-content: flex-start !important;   /* 上詰め（2026-09-15 利用者指示） */
+    gap: 12px !important; padding: 10px 12px !important;
+    border: 1px solid var(--h3-border); border-radius: 8px; background: var(--block-background-fill, var(--h3-panel));
+}
+#kf-col-on > *, #kf-col-on #kf-on, #kf-col-on #kf-on .block { flex: 0 0 auto !important; height: auto !important; margin: 0 !important; }
+#kf-col-on #kf-on label {
+    display: flex !important; width: 100% !important;
+    flex-direction: row !important;                    /* チェックを左、文字を右（2026-09-15 利用者指示。箱が左に来たので） */
+    justify-content: flex-start !important; align-items: center !important;
+}
+#kf-col-on #kf-on input[type="checkbox"] { margin: 0 10px 0 0 !important; }
+#kf-col-on #kf-on .label-text {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+/* 下段 [要約 | すべて削除]（2026-09-15）。ボタンを優先表示: 縮まない・折り返さない。要約は残り幅で省略記号 */
+#kf-row3 { gap: 8px !important; align-items: center !important; flex-wrap: nowrap !important; margin-top: auto !important; }
+#kf-summary { flex: 1 1 0 !important; min-width: 0 !important; }
+#kf-summary .kf-dbg { font-size: 10px; color: var(--h3-faint); word-break: break-all; margin-top: 2px; }   /* 🔍 原因取り（一時）*/
+#kf-summary, #kf-summary .block, #kf-summary > div { padding: 0 !important; margin: 0 !important; border: none !important; background: transparent !important; }
+#kf-summary .kf-sum {
+    font-size: 12px; color: var(--h3-muted); letter-spacing: 0.02em; font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#kf-clear {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important;
+    height: 30px !important; min-height: 0 !important; padding: 0 12px !important;
+    font-size: 12px !important; font-weight: 400 !important; white-space: nowrap !important;
+    border: 1px solid var(--h3-border2) !important; border-radius: 6px !important;
+    background: var(--h3-elev) !important; color: var(--h3-muted) !important;
+}
+#kf-clear:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important; color: var(--h3-on-danger) !important; }
+/* fit のプルダウン: Turbo LoRA と同じ幅（箱の内側いっぱい）・同じ文字 */
+#kf-fit, #kf-fit .container, #kf-fit .wrap, #kf-fit .wrap-inner { width: 100% !important; }
+#kf-fit .container input, #kf-fit .container .wrap-inner, #kf-fit .container .single-select {
+    color: var(--h3-text3) !important; font-size: 13px !important; letter-spacing: 0 !important;
+}
+#lora-bar > *, #cl-bar > * {
+    align-self: center !important; margin: 0 !important; padding: 0 !important;
+    min-height: 0 !important;
+}
+#lora-query .block, #cl-query .block,
+#lora-view .block, #cl-view .block,
+#lora-view fieldset, #cl-view fieldset {
+    margin: 0 !important; padding: 0 !important; min-height: 0 !important;
+    border: none !important; background: none !important;
+}
+#lora-view .wrap, #cl-view .wrap,
+#lora-view fieldset > div, #cl-view fieldset > div {
+    display: flex !important; align-items: center !important;
+    gap: 10px !important; margin: 0 !important; padding: 0 !important;
+}
+#lora-view label, #cl-view label { margin: 0 !important; }
+#lora-query input {
+    background: var(--h3-bg) !important; border: 1px solid var(--h3-border) !important;
+    border-radius: 6px !important; color: var(--h3-text) !important; font-size: 13px !important;
+}
+#lora-view label, #lora-view span {
+    font-size: 12px !important; color: var(--h3-muted) !important; letter-spacing: 0.04em !important;
+}
+#lora-view input[type="radio"] { accent-color: var(--h3-accent) !important; }
+#lora-view .wrap, #lora-view fieldset > div { display: flex !important; gap: 10px !important; }
+/* LORA タブの見出し（件数・置き場所）。一回り大きく、下の1行も同じトーンにそろえる
+   （利用者指定 2026-08-29。以前は 13px / 添え書きだけ --h3-faint2 で薄かった）*/
+#lora-head p { margin: 0 0 8px 0 !important; font-size: 14px !important; color: var(--h3-muted) !important; }
+/* 置き場所の下に添える1行。**大きさも色も本文と同じ**にする（薄くしない）*/
+#lora-head small { font-size: 14px !important; color: var(--h3-muted) !important; }
+/* 🔴 2026-10-01 件数（太字）も地の文と同じ muted・400 に（白く浮く。利用者指摘）。FINDER（#rmm-head）にも写る */
+#lora-head strong { color: var(--h3-muted) !important; font-weight: 400 !important; }
+#lora-head code { font-size: 13px !important; }
+#lora-head code, #lora-detail code, #civi-hint code {
+    color: var(--h3-text3) !important;
+    background: var(--h3-bg) !important; padding: 1px 5px !important; border-radius: 3px !important;
+}
+#lora-detail code, #civi-hint code { font-size: 11px !important; }
+
+/* サムネイル。ギャラリーの共通指定に合わせる */
+#lora-gallery { border: none !important; background: transparent !important; padding: 0 !important; }
+#lora-gallery .block, #lora-gallery .gallery-container {
+    padding: 0 !important; margin: 0 !important; min-height: 0 !important;
+    border: none !important; background: none !important;
+}
+#lora-gallery .grid-wrap, #lora-gallery .grid-wrap.fixed-height {
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    overflow: visible !important; padding: 0 !important;
+}
+#lora-gallery .grid-container {
+    display: grid !important; grid-template-columns: repeat(__LORA_COLS__, 1fr) !important;
+    grid-auto-rows: max-content !important; align-content: start !important;
+    row-gap: __GGAP__px !important; column-gap: __GGAP__px !important;
+    height: auto !important; padding: 0 !important; overflow: visible !important;
+}
+#lora-gallery .gallery-item { width: 100% !important; height: auto !important; margin: 0 !important; }
+#lora-gallery .thumbnail-item {
+    width: 100% !important; height: auto !important; aspect-ratio: 1 / 1 !important;
+    border-radius: 6px !important; overflow: hidden !important; padding: 0 !important;
+    border: 1px solid var(--h3-border) !important;
+}
+#lora-gallery img {
+    width: 100% !important; height: 100% !important; aspect-ratio: 1 / 1 !important;
+    object-fit: cover !important; border-radius: 6px !important; display: block !important;
+}
+#lora-gallery .thumbnail-item.selected {
+    outline: 2px solid var(--h3-accent) !important; outline-offset: -2px !important;
+    border-color: var(--h3-accent) !important;
+}
+/* 名前は出したいのでキャプションは残す */
+#lora-gallery .caption-label {
+    font-size: 11px !important; color: var(--h3-text3) !important;
+    background: var(--h3-caption-bg) !important;
+}
+#lora-gallery .icon-button-wrapper, #lora-gallery .empty, #lora-gallery .wrap.default {
+    display: none !important;
+}
+
+/* CREATE タブ内の簡易ブラウザ */
+#cl-bar { margin-bottom: 6px !important; }
+#cl-query input {
+    background: var(--h3-bg) !important; border: 1px solid var(--h3-border) !important;
+    border-radius: 6px !important; color: var(--h3-text) !important; font-size: 12px !important;
+}
+#cl-head p { margin: 0 0 6px 0 !important; font-size: 12px !important; color: var(--h3-muted) !important; }
+#cl-head code {
+    font-size: 11px !important; color: var(--h3-text3) !important;
+    background: var(--h3-bg) !important; padding: 1px 5px !important; border-radius: 3px !important;
+}
+#cl-gallery { border: none !important; background: transparent !important; padding: 0 !important; }
+#cl-gallery .block, #cl-gallery .gallery-container {
+    padding: 0 !important; margin: 0 !important; min-height: 0 !important;
+    border: none !important; background: none !important;
+}
+/* ⚠️ **無限に伸びないように 5行で止めてスクロールさせる。**
+   1マスの高さは「欄の幅 ÷ 列数」で決まるので、コンテナ幅の単位（cqw）で計算する。
+   cqw が使えない環境のために、先に vh の保険を書いておく（後勝ちなので上書きされる）*/
+#cl-gallery { container-type: inline-size !important; }
+#cl-gallery .grid-wrap, #cl-gallery .grid-wrap.fixed-height {
+    height: auto !important; min-height: 0 !important;
+    max-height: 55vh !important;
+    max-height: calc(__CL_ROWS__ * (100cqw - __CL_GAPSUM__px) / __CLORA_COLS__
+                     + (__CL_ROWS__ - 1) * __GGAP__px) !important;
+    overflow-y: auto !important; padding: 0 !important;
+}
+#cl-gallery .grid-container {
+    display: grid !important; grid-template-columns: repeat(__CLORA_COLS__, 1fr) !important;
+    grid-auto-rows: max-content !important; align-content: start !important;
+    row-gap: __GGAP__px !important; column-gap: __GGAP__px !important;
+    height: auto !important; padding: 0 !important;
+}
+#cl-gallery .gallery-item { width: 100% !important; height: auto !important; margin: 0 !important; }
+#cl-gallery .thumbnail-item {
+    width: 100% !important; height: auto !important; aspect-ratio: 1 / 1 !important;
+    border-radius: 6px !important; overflow: hidden !important; padding: 0 !important;
+    border: 1px solid var(--h3-border) !important;
+}
+#cl-gallery img {
+    width: 100% !important; height: 100% !important; aspect-ratio: 1 / 1 !important;
+    object-fit: cover !important; border-radius: 6px !important; display: block !important;
+}
+#cl-gallery .thumbnail-item.selected {
+    outline: 2px solid var(--h3-accent) !important; outline-offset: -2px !important;
+    border-color: var(--h3-accent) !important;
+}
+#cl-gallery .caption-label {
+    font-size: 10px !important; color: var(--h3-text3) !important;
+    background: var(--h3-caption-bg) !important;
+}
+#cl-gallery .icon-button-wrapper, #cl-gallery .empty, #cl-gallery .wrap.default {
+    display: none !important;
+}
+
+/* リスト表示。Gradio の Dataframe はセルを span で包むので、
+   td だけを指定しても中の文字色が上書きされない。子孫まで落とす */
+#lora-table, #lora-table .block, #lora-table > div,
+#cl-table, #cl-table .block, #cl-table > div {
+    border: none !important; background: transparent !important;
+    box-shadow: none !important; padding: 0 !important;
+}
+#lora-table table, #cl-table table {
+    border-collapse: collapse !important; width: 100% !important;
+}
+#lora-table th, #lora-table th *, #cl-table th, #cl-table th * {
+    background: var(--h3-panel) !important; color: var(--h3-muted2) !important;
+    font-size: 11px !important; font-weight: 400 !important;
+    letter-spacing: 0.08em !important;
+}
+#lora-table td, #lora-table td *, #lora-table .cell-wrap, #lora-table .cell-wrap *,
+#cl-table td, #cl-table td *, #cl-table .cell-wrap, #cl-table .cell-wrap * {
+    color: var(--h3-text3) !important; font-size: 12px !important; font-weight: 400 !important;
+    background: transparent !important; letter-spacing: 0 !important;
+}
+/* 1列目（名前）だけ少し明るく。他の箱のラベルと同じトーンに合わせる */
+#lora-table td:first-child, #lora-table td:first-child *,
+#cl-table td:first-child, #cl-table td:first-child * {
+    color: var(--h3-text2) !important;
+}
+#lora-table th, #lora-table td, #cl-table th, #cl-table td {
+    border: 0 !important; border-bottom: 1px solid var(--h3-divider) !important;
+    padding: 7px 10px !important;
+}
+#lora-table tbody tr:last-child td, #cl-table tbody tr:last-child td {
+    border-bottom: 0 !important;
+}
+#lora-table tbody tr:hover td, #lora-table tbody tr:hover td *,
+#cl-table tbody tr:hover td, #cl-table tbody tr:hover td * {
+    color: var(--h3-text) !important; cursor: pointer !important;
+}
+/* Dataframe 上部のコピー/拡大アイコンは主張させない */
+#lora-table svg, #cl-table svg { color: var(--h3-faint) !important; opacity: 0.55 !important; }
+#lora-table button:hover svg, #cl-table button:hover svg { opacity: 1 !important; }
+#cl-table { max-height: 260px !important; overflow-y: auto !important; }
+
+/* STATUS の箱（右の列のいちばん下）。見出しは CREATE の STATUS と同じ見た目 */
+#lora-status-label p { margin: 0 0 8px 0 !important; }
+#lora-detail h3 { font-size: 14px !important; color: var(--h3-text) !important; margin: 0 0 8px 0 !important; }
+#lora-detail p { font-size: 13px !important; color: var(--h3-muted) !important; margin: 4px 0 !important; }
+#lora-msg p { font-size: 13px !important; color: var(--h3-text3) !important; margin: 0 0 8px 0 !important; }
+#civi-hint p { font-size: 12px !important; color: var(--h3-faint) !important; margin: 8px 0 !important; }
+#lora-del-btn, #civi-add-btn, #civi-token-btn, #hf-add-btn {
+    width: 100% !important; height: 34px !important; margin-top: 8px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#lora-del-btn:hover, #civi-add-btn:hover, #civi-token-btn:hover, #hf-add-btn:hover {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
+}
+#lora-del-btn:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important; color: var(--h3-on-danger) !important; }
+
+/* ============================================================
+   11.4 SEGMENTS タブ
+   ============================================================ */
+/* サムネイルの見た目は LIBRARY と揃える（同じ「見て選ぶ」タブなので） */
+#seg-gallery .grid-container {
+    display: grid !important;
+    grid-auto-rows: max-content !important;
+    align-content: start !important; align-items: start !important;
+    height: auto !important;
+    row-gap: __GGAP__px !important; column-gap: __GGAP__px !important;
+    padding: 0 !important; margin: 0 !important; overflow: visible !important;
+    grid-template-columns: repeat(__SEG_COLS__, 1fr) !important;
+}
+#seg-gallery .gallery-item {
+    width: 100% !important; height: auto !important;
+    align-self: start !important; margin: 0 !important; padding: 0 !important;
+}
+#seg-gallery .thumbnail-item {
+    width: 100% !important; height: auto !important; aspect-ratio: 1 / 1 !important;
+    border-radius: 6px !important; overflow: hidden !important;
+    padding: 0 !important; margin: 0 !important; border: 1px solid var(--h3-border) !important;
+}
+#seg-gallery img {
+    width: 100% !important; height: 100% !important; aspect-ratio: 1 / 1 !important;
+    object-fit: cover !important; border-radius: 6px !important; display: block !important;
+}
+#seg-gallery .thumbnail-item.selected { border-color: var(--h3-accent) !important; }
+/* キャプション（通し番号・秒数・シード）は小さく、選択の邪魔をしない濃さで */
+#seg-gallery .caption-label {
+    font-size: 10px !important; color: var(--h3-muted) !important;
+    background: var(--h3-caption-bg) !important; border: 0 !important;
+    padding: 2px 5px !important; border-radius: 0 0 6px 6px !important;
+}
+#seg-bar { align-items: center !important; gap: 8px !important; }
+/* ⚠️ **左の一覧の箱を、右の列の下端まで伸ばす。**（SEGMENTS / LORA 共通）
+   行は equal_height=True にしてあるので、列は同じ高さになる。あとは
+   「列を縦の flex にして、一覧だけを伸ばす」だけでよい。
+   固定 px にすると右の列の中身が増減したときに合わなくなるので使わない */
+#seg-left, #seg-right, #lora-left, #lora-right {
+    display: flex !important; flex-direction: column !important;
+    align-self: stretch !important; min-height: 0 !important;
+}
+/* ⚠️ 列を flex にすると、右側の箱（アコーディオンなど）まで**余白を分け合って伸びる**。
+   伸ばしたいのは左の一覧だけなので、右側の子は伸ばさない */
+#seg-right > *, #lora-right > * { flex: 0 0 auto !important; }
+
+/* ⚠️ **左右の「中身の上端」をそろえる。** 箱の外枠は同じ高さから始まっていても、
+   箱の内側の余白のぶんだけ中身の位置がずれて見える。上の余白だけ落とす */
+#seg-panel, #lora-panel, #seg-preview-box {
+    padding-top: 0 !important;
+}
+/* LORA タブの右の列は 削除ボタン → 取り込み → STATUS の順（利用者判断 2026-08-26）。
+   左の検索欄と**中身の上端**をそろえる（検索欄は行の中で 2px 下がる） */
+#lora-right > #lora-del-btn { margin-top: 2px !important; }
+/* ⚠️ 空の詳細（LoRA 未選択）は `:empty` では消せない。
+   Gradio は中身が空でも入れ物の div を必ず作るので、CSS から見ると**空ではない**。
+   高さ 0 にはできるが、**縦並びの隙間（gap）は残る**ので、隙間そのものを 0 にして
+   「中身が入ったときの余白」は**中身側（見出しや段落の margin）に持たせる** */
+/* 中身が空でも「箱」として見えているように（利用者判断 2026-08-26）*/
+#lora-status-panel { gap: 0 !important; min-height: 120px !important; }
+#lora-status-panel > * { margin: 0 !important; }
+#lora-detail { margin: 0 !important; padding: 0 !important; min-height: 0 !important; }
+#lora-msg { margin: 0 !important; padding: 0 !important; min-height: 0 !important; }
+#lora-detail p:last-child { margin-bottom: 0 !important; }
+#seg-panel, #lora-panel {
+    flex: 1 1 auto !important; height: auto !important; min-height: 0 !important;
+    display: flex !important; flex-direction: column !important;
+    overflow: hidden !important;
+}
+#seg-panel > *:not(#seg-head) { flex: 1 1 auto !important; min-height: 0 !important; }
+#seg-panel #seg-head { flex: 0 0 auto !important; margin-top: 8px !important; }
+#lora-panel > #lora-bar, #lora-panel > #lora-head { flex: 0 0 auto !important; }
+#lora-panel > #lora-gallery, #lora-panel > #lora-table {
+    flex: 1 1 auto !important; min-height: 0 !important;
+}
+/* 一覧は**外側**をスクロールさせる（内側に 100% を持たせると切れるだけになる）*/
+#lora-gallery { overflow-y: auto !important; }
+#lora-gallery .block, #lora-gallery .gallery-container {
+    height: auto !important; min-height: 0 !important;
+}
+#lora-gallery .grid-wrap, #lora-gallery .grid-wrap.fixed-height {
+    height: auto !important; max-height: none !important; overflow: visible !important;
+}
+#lora-table { overflow-y: auto !important; }
+/* ⚠️ **スクロールさせるのは一番外側（#seg-gallery）**。内側の .grid-wrap に
+   height:100% と overflow を持たせると、親が自動高さなので 100% が中身の高さに
+   化けて、外側が overflow:hidden のまま**切れるだけでスクロールできない**状態になった */
+#seg-gallery {
+    height: 100% !important; min-height: 0 !important; overflow-y: auto !important;
+}
+#seg-gallery .block, #seg-gallery .gallery-container {
+    height: auto !important; min-height: 0 !important;
+}
+#seg-gallery .grid-wrap, #seg-gallery .grid-wrap.fixed-height {
+    height: auto !important; max-height: none !important;
+    overflow: visible !important; padding: 0 !important;
+}
+#seg-head p { margin: 0 !important; font-size: 13px !important; color: var(--h3-muted) !important; }
+#seg-head code {
+    font-size: 11px !important; color: var(--h3-text3) !important;
+    background: var(--h3-bg) !important; padding: 1px 5px !important; border-radius: 3px !important;
+}
+#seg-head strong { color: var(--h3-text2) !important; font-weight: 500 !important; }
+/* ⚠️ 上の余白は 0 のまま（左の一覧と**中身の上端**をそろえるため）*/
+#seg-preview-box { padding: 0 12px 10px 12px !important; }
+#seg-detail h3 { font-size: 14px !important; color: var(--h3-text) !important; margin: 6px 0 6px 0 !important; }
+#seg-detail p { font-size: 13px !important; color: var(--h3-muted) !important; margin: 4px 0 !important; }
+#seg-detail code {
+    font-size: 11px !important; color: var(--h3-text3) !important;
+    background: var(--h3-bg) !important; padding: 1px 5px !important; border-radius: 3px !important;
+}
+#seg-act { padding: 10px 12px !important; }
+/* 下の2つのボタンと同じ見え方にそろえる（中央寄せ・同じ文字サイズ）*/
+#seg-reseed { margin: 0 !important; }
+#seg-reseed label {
+    display: flex !important; width: 100% !important;
+    justify-content: center !important; align-items: center !important; gap: 8px !important;
+}
+#seg-reseed label span, #seg-reseed span {
+    font-size: 11px !important; letter-spacing: 0.12em !important;
+    font-weight: 400 !important; color: var(--h3-muted) !important;
+}
+#seg-reseed input[type="checkbox"] {
+    accent-color: var(--h3-accent) !important; flex: 0 0 auto !important; margin: 0 !important;
+}
+#seg-trunc-btn, #seg-concat-btn {
+    width: 100% !important; height: 34px !important; margin-top: 8px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#seg-trunc-btn:hover, #seg-concat-btn:hover {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
+}
+/* 破壊的な操作なので、押せるときだけ赤くする */
+#seg-trunc-btn:not([disabled]):hover {
+    background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important; color: var(--h3-on-danger) !important;
+}
+#seg-msg p { font-size: 13px !important; color: var(--h3-text3) !important; margin: 8px 0 0 0 !important; }
+/* SYSTEM タブの節見出しは ENGINE / MODEL と同じオレンジ系にそろえ、少し大きくする
+   （利用者判断 2026-08-26）。灰色の 11px では、下にある操作の見出しだと読み取りにくかった。
+   ⚠️ `.sys-card h4` は既にオレンジだが、**id 側の指定が勝つ**ので、
+      ここを直さないと灰色のまま残る（実際そうなっていた）。
+   ⚠️ 色は `--h3-accent-2`（ENGINE と同じトークン）を使う。#cf8a12 と直書きしない。
+      ダーク側で別の値に差し替わるため */
+#resume-title h4, #refse-title h4, #refvf-title h4, #rlt-title h4 {
+    margin: 0 0 10px 0 !important; font-size: 13px !important;
+    color: var(--h3-accent-2) !important;
+    letter-spacing: 0.16em !important; font-weight: 700 !important;
+}
+/* SYSTEM タブ: 設定のレジューム */
+#resume-card { margin-top: 16px !important; padding: 12px 14px !important; }
+#resume-cb { margin: 0 !important; }
+#resume-note p { font-size: 13px !important; color: var(--h3-muted) !important; margin: 8px 0 0 0 !important; }
+#resume-note code { font-size: 10px !important; color: var(--h3-text3) !important;
+    background: var(--h3-bg) !important; padding: 1px 5px !important; border-radius: 3px !important; }
+/* 説明文も1px 上げる。見出しだけ大きくすると本文が沈んで読みにくくなる */
+#resume-hint p { font-size: 13px !important; color: var(--h3-faint) !important; margin: 8px 0 0 0 !important; }
+/* SYSTEM タブ最上部: 版名とクレジット。**段を分ける**（版名 / コピーライト） */
+#app-cred-wrap { margin: 0 0 10px 0 !important; padding: 0 !important; }
+/* 🔴 罫線は**上のタブのバーと同じ幅**にする（2026-09-02 / 利用者要望）。
+   #app-cred は `.tabitem` の中にあり、その左右パディングのぶんだけ内側に入る。
+   パディングの実値は Gradio の版で変わるので、JS（CRED_BAR_JS）で測って
+   --cred-bleed に入れ、その分だけ疑似要素を外へ出す。測れなければ 0 で従来どおり。 */
+#app-cred { padding: 2px 0 12px 0; position: relative; }
+#app-cred::after {
+    content: ""; position: absolute; bottom: 0; height: 0;
+    left: calc(-1 * var(--cred-bleed, 0px));
+    right: calc(-1 * var(--cred-bleed-r, var(--cred-bleed, 0px)));
+    border-bottom: 1px solid var(--h3-border2);
+}
+#app-cred .app-ver {
+    font-size: 18px; font-weight: 600; letter-spacing: 0.04em;
+    color: var(--h3-text);
+}
+#app-cred .app-copy {
+    margin-top: 5px; font-size: 13px; letter-spacing: 0.06em;
+    color: var(--h3-faint);
+}
+#app-cred .app-sep { margin: 0 7px; opacity: 0.55; }
+/* SYSTEM タブ: Sparse Attention SLA。レジュームの箱と同じ見た目にそろえる */
+#sla-card { margin-top: 16px !important; padding: 12px 14px !important; }
+#sla-cb { margin: 0 !important; }
+/* SYSTEM タブ: 参照の読み込み精度。レジュームの箱と同じ見た目にそろえる */
+#refse-card, #refvf-card, #rlt-card { margin-top: 16px !important; padding: 12px 14px !important; }
+#refse-dd, #refvf-dd, #rlt-dd { margin: 0 !important; }
+/* 🆕 2026-10-01 Ref2VA 長尺の Turbo: 値の字は基本設定の入力と同じ 13px・--h3-text */
+#rlt-dd .container input, #rlt-dd .container .wrap-inner, #rlt-dd input {
+    color: var(--h3-text) !important; font-size: 13px !important; letter-spacing: 0 !important;
+}
+/* 選択肢の箱は「保存済みの設定を消す」と同じ色づかいにそろえる（利用者判断 2026-08-26）。
+   DOM は実物で確かめた: #refse-dd > .wrap > label > (input + span)。
+   選ばれているものには Gradio が label に `.selected` を付ける。
+   ⚠️ **箱（label）と文字（span）の両方に指定が要る。** label だけだと文字色が既定のまま残る
+      （実測 rgb(39,39,42) / 14px のまま）。クラス名（svelte-…）は当てにしない */
+#refse-dd .wrap label, #refvf-dd .wrap label {
+    background: var(--h3-elev) !important;
+    border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important;
+    color: var(--h3-muted) !important;
+}
+#refse-dd .wrap label span, #refvf-dd .wrap label span {
+    color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#refse-dd .wrap label:hover, #refvf-dd .wrap label:hover { border-color: var(--h3-border) !important; }
+/* 選ばれているものだけは沈ませない */
+#refse-dd .wrap label.selected, #refvf-dd .wrap label.selected { border-color: var(--h3-accent) !important; }
+#refse-dd .wrap label.selected span, #refvf-dd .wrap label.selected span { color: var(--h3-text) !important; }
+#refse-hint p { font-size: 13px !important; color: var(--h3-faint) !important; margin: 8px 0 0 0 !important; }
+/* 🆕 2026-10-01 字をそろえる（利用者: 「画像を 1 本の動画にまとめる」と SYSTEM のチェック・ラジオの見出しが浮く。
+   素の Gradio は 14〜15px・白で出る）。
+   ・チェックボックスの文言 … 選択欄の値と同じ 13px・--h3-text3
+   ・ラジオの見出し（読み込む短辺 / 先頭から使うフレーム数）… 基本設定のラベルと同じ 12px・muted・字間 0.04em */
+#resume-cb label span, #resume-cb span, #sla-cb label span, #sla-cb span {
+    font-size: 13px !important; color: var(--h3-text3) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important; line-height: 1.5 !important;
+}
+/* 🆕 ver1.7 #325 RefMod の保存の箱（Reference タブ・BUILDER）のチェックは、同じ箱の見出し（保存名・大きさ）と
+   Keyframe の ON（#kf-on）に合わせて 12px・muted・字間 0.04em（利用者指摘: 13px・text3 だと箱の中で浮く） */
+#refmod-stack label span, #refmod-stack span, #rmb-stack label span, #rmb-stack span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important; line-height: 1.5 !important;
+}
+#resume-cb input[type="checkbox"], #sla-cb input[type="checkbox"],
+#refmod-stack input[type="checkbox"], #rmb-stack input[type="checkbox"] {
+    accent-color: var(--h3-accent) !important; flex: 0 0 auto !important;
+}
+#refse-dd [data-testid="block-info"], #refvf-dd [data-testid="block-info"], #rlt-dd [data-testid="block-info"],
+#refse-dd > span, #refvf-dd > span, #refse-dd > label > span:first-child, #refvf-dd > label > span:first-child,
+#rlt-dd > label > span:first-child {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important; margin-bottom: 8px !important;
+}
+/* RefMod の保存行のチェックは下段（ボタンの隣）で上下中央 */
+#refmod-stack { align-self: center !important; padding: 0 !important; min-width: 0 !important; }
+#resume-clear-btn {
+    width: 220px !important; height: 30px !important; margin-top: 10px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#resume-clear-btn:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important;
+    color: var(--h3-on-danger) !important; }
+#seg-note p { font-size: 12px !important; color: var(--h3-faint) !important; margin: 8px 0 !important; }
+
+/* ============================================================
+   11.5 UPSCALE タブ
+   ============================================================ */
+/* 左カラムは padding を持たせない。持たせると右カラムより上端が下がり、
+   中の動画も横幅が内側に寄って RESULT とサイズが揃わなくなる。
+   箱の間隔は Gradio 既定の gap（16px）だけに任せ、margin では作らない */
+#up-src-panel {
+    padding: 0 !important; border: none !important;
+    background: transparent !important;
+}
+#up-drop { border: 1px dashed var(--h3-border2) !important; border-radius: 8px !important; }
+#up-video { margin: 0 !important; }
+#up-result-box { margin: 0 !important; padding: 0 !important; }
+/* SOURCE のプレビューと RESULT は同じ枠にする */
+#up-video, #up-video .block,
+#up-result-box > *, #up-result-box .block {
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    background: var(--h3-panel) !important; padding: 0 !important;
+}
+/* パネルの中身の間隔は padding で取る。margin だと .form の背景（枠の色）が
+   そこだけ帯になって透けて見える（Motion Context で踏んだのと同じ罠） */
+#up-cfg > *, #upi-cfg > * { margin: 0 !important; }
+#up-cfg .form, #upi-cfg .form { gap: 0 !important; }
+#up-cfg .form > *, #upi-cfg .form > * {
+    border: 0 !important; border-width: 0 !important; border-color: transparent !important;
+    box-shadow: none !important; outline: none !important;
+    background-color: var(--h3-elev2) !important;
+}
+#up-mode { margin-bottom: 0 !important; padding-bottom: 10px !important; }
+#up-mode .wrap, #up-mode fieldset > div {
+    display: flex !important; gap: 10px !important;
+}
+#up-mode label, #up-mode span, #up-short label, #up-short label > span:first-child,
+#up-scale label, #up-scale span, #up-model .container, #up-model .container > span,
+#upi-scale label, #upi-scale span, #upi-denoise label, #upi-denoise span,
+#upi-tile label, #upi-tile span,
+#upi-model .container, #upi-model .container > span,
+#upi-prompt label, #upi-prompt label > span:first-child {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#up-mode input[type="radio"], #up-scale input[type="radio"] { accent-color: var(--h3-accent) !important; }
+/* UPSCALE（動画）の SeedVR2 / Face Refiner 切り替えと、Refiner 側のパネル */
+#up-kind { margin: 0 0 10px 0 !important; }
+#up-kind .wrap, #up-kind fieldset > div { display: flex !important; gap: 10px !important; }
+#up-kind input[type="radio"] { accent-color: var(--h3-accent) !important; }
+#up-fr-cfg > * { margin: 0 !important; }
+#up-fr-cfg .form { gap: 0 !important; }
+#up-fr-cfg .form > * {
+    border: 0 !important; box-shadow: none !important;
+    background-color: var(--h3-elev2) !important;
+}
+#upv-strength, #upv-res, #upv-factor { margin-top: 0 !important; padding-top: 10px !important; }
+#up-kind label, #up-kind span,
+#upv-strength label, #upv-strength span, #upv-res label, #upv-res span,
+#upv-factor label, #upv-factor span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#up-short, #up-scale, #up-model, #upf-model, #upf-blend,
+#upi-scale, #upi-denoise, #upi-tile, #upi-model, #upi-prompt { margin-top: 0 !important; padding-top: 10px !important; }
+#up-fast-cfg { gap: 0 !important; padding: 0 !important; }
+#up-fast-cfg > * { margin: 0 !important; }
+#up-short input, #up-scale input, #upi-scale input, #upi-denoise input, #upi-tile input,
+#upv-strength input, #upv-res input, #upv-factor input,
+#up-model input, #up-model .wrap-inner, #up-model .single-select,
+#upf-model input, #upf-model .wrap-inner, #upf-model .single-select, #upf-blend input,
+#upi-model input, #upi-model .wrap-inner, #upi-model .single-select,
+#upi-prompt textarea {
+    color: var(--h3-text3) !important; font-size: 13px !important;
+}
+#up-short .min-value, #up-short .max-value,
+#up-scale .min-value, #up-scale .max-value,
+#upi-scale .min-value, #upi-scale .max-value,
+#upi-denoise .min-value, #upi-denoise .max-value,
+#upi-tile .min-value, #upi-tile .max-value,
+#upf-blend .min-value, #upf-blend .max-value {
+    color: var(--h3-faint) !important; font-size: 11px !important;
+}
+#up-gen-row, #upi-gen-row { gap: 6px !important; flex-wrap: nowrap !important; margin: 0 !important; }
+#up-gen-row > *, #upi-gen-row > * { min-width: 0 !important; }
+#up-btn, #upi-btn {
+    background-color: var(--h3-accent) !important; color: var(--h3-on-accent) !important;
+    border: none !important; border-radius: 8px !important;
+    padding: 10px 16px !important; font-size: 15px !important; font-weight: 700 !important;
+    width: 100% !important; min-height: unset !important; height: 48px !important;
+    letter-spacing: 0.10em !important;
+}
+#up-btn:hover, #upi-btn:hover { background-color: var(--h3-accent-hi) !important; }
+#up-btn:disabled, #upi-btn:disabled {
+    background-color: var(--h3-accent-dim) !important; color: var(--h3-accent-dim-fg) !important; cursor: wait !important;
+}
+#up-cancel, #upi-cancel {
+    flex: 0 0 118px !important; width: 118px !important;
+    height: 48px !important; padding: 0 !important;
+    background: var(--h3-danger-bg2) !important; border: 1px solid var(--h3-danger-border2) !important;
+    border-radius: 8px !important; color: var(--h3-danger-text) !important;
+    font-size: 12px !important; font-weight: 700 !important; letter-spacing: 0.10em !important;
+}
+#up-cancel:hover, #upi-cancel:hover { background: var(--h3-danger-bg3) !important; border-color: var(--h3-danger-border) !important; color: var(--h3-on-danger) !important; }
+#up-status-panel, #upi-status-panel { margin: 0 !important; }
+#up-status-panel textarea, #upi-status-panel textarea {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    padding: 4px 0 0 0 !important; margin: 0 !important; resize: none !important;
+    color: var(--h3-text3) !important; font-size: 12px !important; line-height: 1.6 !important;
+}
+#up-status-panel textarea:focus, #upi-status-panel textarea:focus { outline: none !important; box-shadow: none !important; }
+#up-status-panel label, #up-status-panel label > span:first-child,
+#upi-status-panel label, #upi-status-panel label > span:first-child {
+    font-size: 11px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.16em !important; font-weight: 400 !important;
+}
+
+/* CREATE / LIBRARY から UPSCALE へ送るボタン */
+#send-up-btn, #lib-up-btn {
+    width: 100% !important; height: 34px !important; margin-top: 8px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#send-up-btn:hover:not(:disabled), #lib-up-btn:hover:not(:disabled) {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
+}
+#lib-up-btn:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
+
+/* ============================================================
+   12. SYSTEM タブ
+   ============================================================ */
+#sys-bar { align-items: center !important; gap: 8px !important; margin-bottom: 4px !important; }
+#sys-note p { margin: 0 !important; font-size: 13px !important; color: var(--h3-muted) !important; }
+.sys-card { border-color: var(--h3-track) !important; }
+.sys-card h4 {
+    margin: 0 0 10px 0 !important; font-size: 12px !important;
+    color: var(--h3-accent-2) !important; letter-spacing: 0.16em !important; font-weight: 700 !important;
+}
+.sys-card .block, .sys-card .prose, .sys-card > div, .sys-card .form {
+    border: none !important; background: none !important;
+    padding: 0 !important; box-shadow: none !important;
+}
+/* 表は枠線を全部消してから、行間だけグレーの区切りを入れる */
+.sys-card .prose table, .sys-card .prose thead, .sys-card .prose tbody,
+.sys-card .prose tr, .sys-card .prose th, .sys-card .prose td,
+.gradio-container .sys-card table, .gradio-container .sys-card tr,
+.gradio-container .sys-card td, .gradio-container .sys-card th {
+    border: 0 !important; border-width: 0 !important;
+    border-color: transparent !important; background: none !important;
+    box-shadow: none !important; outline: none !important;
+}
+.gradio-container .sys-card tr { border-bottom: 1px solid var(--h3-divider) !important; }
+.gradio-container .sys-card tr:last-child { border-bottom: 0 !important; }
+.sys-card table {
+    table-layout: fixed !important; width: 100% !important;
+    border-collapse: collapse !important;
+}
+.sys-card td {
+    padding: 6px 0 !important; font-size: 13px !important;
+    vertical-align: top !important; line-height: 1.5 !important;
+}
+.sys-card td:first-child { color: var(--h3-muted) !important; width: 42% !important; white-space: nowrap; }
+.sys-card td:last-child { color: var(--h3-text2) !important; word-break: break-all; }
+
+/* ============================================================
+   12.5 一覧の全画面表示（Dataframe / Gallery の ⛶）
+   ============================================================ */
+/* ⚠️ **Gradio 6 の ⛶ は本物の全画面（Fullscreen API）ではない。**
+   実測: 押しても requestFullscreen は呼ばれず、箱に `.fullscreen` が付いて
+   `position: fixed` で**画面いっぱい**に広がるだけ。
+   → `:fullscreen` や `::backdrop` の CSS は**当たらない**（一度これで外した）。
+   ここは `.fullscreen` クラスを直接受けること。
+
+   ⚠️ 大きさは JS が測って `--h3-zoom-*` に入れている（ZOOM_JS）。
+   CSS だけでは「いま見えている WebUI の枠」は測れない。JS が動かなかったとき用に
+   `var()` の既定値で画面いっぱいに戻るようにしてある。
+
+   ⚠️ #id の規則で一覧の背景を透明にしてあるので、`.fullscreen` だけでは**負ける**。
+   id を並べて `#id.fullscreen` にしてある（消す・増やすときは両方あわせる） */
+/* ⚠️🔴 **`#id.fullscreen` で並べること。** `.gradio-container .block.fullscreen` だけでは
+   Gradio 自身の `width: 100vw` に負ける箱がある。実測（Chromium）:
+   画像プレビューを id 無しで済ませたところ、`--h3-zoom-w=1472px` を出しているのに
+   箱は 1600px（＝ビューポート幅）になり、**右端だけ画面の縁まではみ出した**。
+   左は `--h3-zoom-left` が効くので、左だけ余白がある非対称な見た目になる。 */
+#lora-table.fullscreen, #cl-table.fullscreen,
+#lora-gallery.fullscreen, #cl-gallery.fullscreen, #seg-gallery.fullscreen,
+#recent-gallery.fullscreen, #lib-grid.fullscreen, #batch-strip.fullscreen,
+#preview-img.h3-zoom, #lib-preview-img.h3-zoom, #upi-out-img.h3-zoom,
+#preview-video.h3-zoom, #lib-preview-video.h3-zoom,
+.gradio-container .block.fullscreen {
+    top: var(--h3-zoom-top, 8px) !important;
+    left: var(--h3-zoom-left, 8px) !important;
+    width: var(--h3-zoom-w, calc(100vw - 16px)) !important;
+    height: var(--h3-zoom-h, calc(100vh - 16px)) !important;
+    max-width: none !important; max-height: none !important;
+    min-height: 0 !important;
+    background: var(--h3-panel) !important;
+    border: 1px solid var(--h3-border) !important;
+    border-radius: 10px !important;
+    padding: 14px !important;
+    overflow: auto !important;
+    z-index: 1001 !important;
+    box-shadow: 0 24px 70px var(--h3-shadow) !important;
+}
+/* 中身は入れ物が塗ってあるので透かしたままでよい。高さの縛りだけ解く */
+.block.fullscreen .grid-wrap, .block.fullscreen .gallery-container,
+.block.fullscreen .table-wrap, .block.fullscreen .virtual-table-viewport {
+    max-height: none !important; height: auto !important; overflow: visible !important;
+}
+/* ⚠️🔴 **開け閉めのアニメーションは切る。**
+   Gradio は開閉のあいだ `.animating` を付けて `position: fixed` のまま大きさを
+   動かし、`transitionend` で後片付けをする。こちらが `!important` で位置と大きさを
+   固定しているので**動くものが無く、transitionend が来ない** →
+   `.animating` が外れず、**箱が宙に浮いたまま残る**（実機で発生）。
+   動かさなければこの取りこぼしは起きない。 */
+.gradio-container .block.fullscreen, .gradio-container .block.animating,
+.gradio-container .h3-zoom {
+    transition: none !important; animation: none !important;
+}
+/* 動画の自前ズーム。Gradio 側に状態が無いので、クラスの付け外しだけで完結する
+   （一覧の ⛶ と違って「Gradio と食い違って宙に浮く」問題が起きない） */
+#preview-img.h3-zoom, #lib-preview-img.h3-zoom, #upi-out-img.h3-zoom,
+#preview-video.h3-zoom, #lib-preview-video.h3-zoom {
+    position: fixed !important; overflow: hidden !important;
+    display: flex !important; flex-direction: column !important;
+}
+#preview-video.h3-zoom > div, #lib-preview-video.h3-zoom > div,
+#preview-video.h3-zoom .video-container, #lib-preview-video.h3-zoom .video-container {
+    flex: 1 1 auto !important; min-height: 0 !important;
+    height: 100% !important; max-height: 100% !important; width: 100% !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+}
+#preview-video.h3-zoom video, #lib-preview-video.h3-zoom video {
+    max-width: 100% !important; max-height: 100% !important;
+    width: 100% !important; height: 100% !important; object-fit: contain !important;
+}
+#preview-video video, #lib-preview-video video { cursor: zoom-in; }
+#preview-video.h3-zoom video, #lib-preview-video.h3-zoom video { cursor: zoom-out; }
+/* それでも `.animating` が残ったときの保険。閉じたあとは必ず流れに戻す */
+.gradio-container .block.animating:not(.fullscreen) {
+    position: relative !important;
+    top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
+    z-index: auto !important; box-shadow: none !important;
+}
+/* ⚠️ **画像は一覧と違って「枠に収める」必要がある。**
+   `.block.fullscreen` は箱の大きさしか決めないので、中の <img> は素の大きさのまま
+   はみ出す（実機で発生：上下に大きな余白ができ、右が切れる）。
+   ここで中身を中央寄せして contain させる。id を限っているのは
+   ギャラリーのタイル（同じく <img>）を巻き込まないため。 */
+/* ⚠️🔴 **親を1つでも取りこぼすと効かない。**
+   Gradio の中身は `DIV.image-container > BUTTON > DIV.image-frame > IMG` で、
+   **<button> が挟まっている**（Chromium で実測）。この button に高さを与えないと、
+   縦長の画像が箱を突き抜ける（実機の症状はこれ。2600x1400 の画像が 2203px で描画された）。
+   連鎖のすべてに高さを渡し、最後に img を contain させる。 */
+#preview-img.h3-zoom, #lib-preview-img.h3-zoom, #upi-out-img.h3-zoom {
+    overflow: hidden !important;
+    display: flex !important; flex-direction: column !important;
+}
+#preview-img.h3-zoom > div, #lib-preview-img.h3-zoom > div,
+#upi-out-img.h3-zoom > div {
+    flex: 1 1 auto !important; min-height: 0 !important;
+    height: auto !important; max-height: 100% !important; width: 100% !important;
+}
+#preview-img.h3-zoom .image-container, #lib-preview-img.h3-zoom .image-container,
+#upi-out-img.h3-zoom .image-container,
+#preview-img.h3-zoom .image-container > button,
+#lib-preview-img.h3-zoom .image-container > button,
+#upi-out-img.h3-zoom .image-container > button,
+#preview-img.h3-zoom .image-frame, #lib-preview-img.h3-zoom .image-frame,
+#upi-out-img.h3-zoom .image-frame {
+    height: 100% !important; max-height: 100% !important; width: 100% !important;
+    min-height: 0 !important; padding: 0 !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+}
+#preview-img.h3-zoom img, #lib-preview-img.h3-zoom img, #upi-out-img.h3-zoom img {
+    max-width: 100% !important; max-height: 100% !important;
+    width: 100% !important; height: 100% !important;
+    object-fit: contain !important;
+}
+/* 画像そのものを押しても拡大できるようにしてある（ZOOM_JS）。手の形で知らせる */
+#preview-img img, #lib-preview-img img, #upi-out-img img { cursor: zoom-in; }
+#preview-img.h3-zoom img, #lib-preview-img.h3-zoom img,
+#upi-out-img.h3-zoom img { cursor: zoom-out; }
+
+/* 拡大中の前後送り。**幕より前（z-index 1002）に置く**ので画像の上でも押せる。
+   ⚠️ Gradio の部品の中に入れると、表示が切り替わったとき DOM ごと消される。
+   だから body 直下に自前で持ち、位置は `--h3-zoom-*` から計算する。 */
+#h3-zoom-nav { position: fixed; inset: 0; z-index: 1002; pointer-events: none; display: none; }
+.h3-zoom-arrow {
+    position: fixed; pointer-events: auto; cursor: pointer;
+    top: calc(var(--h3-zoom-top, 8px) + var(--h3-zoom-h, 80vh) / 2 - 30px);
+    width: 46px; height: 60px; padding: 0; line-height: 1;
+    font-size: 30px; font-weight: 400;
+    color: var(--h3-text) !important;
+    background: var(--h3-panel) !important;
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    box-shadow: 0 6px 20px var(--h3-shadow); opacity: 0.72;
+    display: flex; align-items: center; justify-content: center;
+}
+.h3-zoom-arrow:hover { opacity: 1; }
+.h3-zoom-arrow[disabled] { opacity: 0.18; cursor: default; }
+.h3-zoom-prev { left: calc(var(--h3-zoom-left, 8px) + 12px); }
+.h3-zoom-next { left: calc(var(--h3-zoom-left, 8px) + var(--h3-zoom-w, 90vw) - 58px); }
+
+/* 後ろの幕。ここを押すと閉じる（ZOOM_JS が付ける） */
+#h3-zoom-veil {
+    position: fixed !important; inset: 0 !important;
+    z-index: 1000 !important; display: none;
+    background: var(--h3-veil) !important;
+}
+
+/* ============================================================
+   12.6 一覧の表で「行や列を足す / 消す」を出さない
+   ============================================================ */
+/* LORA タブはトリガーだけ直せればよく、行や列の増減は事故のもと。
+   ⚠️ `row_count` / `col_count` を fixed にしても**この UI は消えない**（実測）。
+   出ているのは3つ:
+     .cell-menu-button … セルの ⋮（「行を削除」「列を削除」などの入口）
+     .cell-menu        … その中身
+     .selection-button … セルの上と左に出る小さなつまみ（行選択 / 列選択） */
+#lora-table .cell-menu-button, #cl-table .cell-menu-button,
+#lora-table .selection-button, #cl-table .selection-button,
+#lora-table .cell-menu, #cl-table .cell-menu {
+    display: none !important;
+}
+/* ⚠️ ⋮ の中身は表の外（body 直下）に出ることがあるので、こちらでも押さえる。
+   表はこの2つしか無いので巻き込み事故は起きない */
+.gradio-container .cell-menu, body > .cell-menu { display: none !important; }
+
+/* ============================================================
+   12.8 CREATE 下段のタブ（CharSheet / LoRA / Keyframe / I2V / Ref2VA）
+   ============================================================ */
+/* ⚠️ 主タブ（CREATE / LIBRARY …）と同じ `.tab-container` を使うので、
+   字間と色は 13節の共通規則がそのまま当たる。ここでは**間隔だけ**を決める。
+   ⚠️ ナビのボタンは Gradio が `{elem_id}-button` で id を振る。モードに応じた
+   出し分けは `#create-tabs-css` に流し込む <style> がこの id を名指しする */
+#create-tabs { margin-top: 4px !important; }
+#create-tabs > .tab-container, #create-tabs > [role="tablist"] {
+    gap: 4px !important; margin-bottom: 0 !important;
+}
+/* タブの中身は箱として見せる（アコーディオンだったときと同じ見た目にそろえる）*/
+#create-tabs > .tabitem {
+    background: var(--h3-panel) !important;
+    border: 1px solid var(--h3-border) !important;
+    border-radius: 10px !important;
+    padding: 12px !important; margin-top: 0 !important;
+}
+/* ？アイコンはナビのボタンの中へ複製される。ボタンが縦に伸びないようにする */
+#create-tabs [role="tab"] .h3-help { margin-left: 6px !important; vertical-align: middle; }
+/* <style> の置き場所は見えなくてよい（中身は <style> だけ）*/
+#create-tabs-css { display: none !important; }
+
+/* ============================================================
+   12.8b Ref2VA / Ref2I の Reference / RefMod サブタブ
+   ============================================================ */
+/* ⚠️ 行に入れた入力は Gradio が `.form` / `.block` で包み、入力の枠の外に**もう1つ箱**が出る
+   （利用者の指摘 2026-09-29「二重ボックス」）。#sheet-bar と同じく外枠を消し、枠は入力自身に任せる。
+   ⚠️ Gradio 6.26 では elem_classes が DOM に付かない部品がある（2節）ので **id で名指し**する */
+#refmod-bar .form, #refmod-bar .block, #refmod-save-row .form, #refmod-save-row .block,
+#refmod-save-row2 .form, #refmod-save-row2 .block {
+    background: none !important; background-color: transparent !important;
+    border: 0 !important; box-shadow: none !important; padding: 0 !important;
+}
+/* 左半分＝RefMod の選択、右半分＝Strength。**下端でそろえ**、Strength のバーは選択欄の箱（高さ 40px）の
+   上下中央に来るようにする（バーの入れ物を箱と同じ 40px にして中央寄せ。利用者指摘 2026-09-29）*/
+#refmod-bar { align-items: flex-end !important; gap: 16px !important; flex-wrap: nowrap !important; }
+/* 🆕 2026-10-01 RefMod（絞り込み）と Strength を 1 つの箱に（下のピッカーと同じ枠。利用者指定）*/
+/* 🆕 ver1.7 #320 枠は外側の列（#refmod-bar-box）へ移し、2 段目（#refmod-bar2: 拡張モジュールの部品＝見た目の説明を自動で足す）を同じ箱に入れる。
+   段の間は保存の箱（#refmod-save-box）と同じ 14px */
+#refmod-bar-box { border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+                  padding: 10px 12px 12px !important; gap: 14px !important; margin: 0 !important; }
+#refmod-bar { border: 0 !important; padding: 0 !important; }
+#refmod-bar2, #refmod-bar2 .form, #refmod-bar2 .block {
+    background: none !important; background-color: transparent !important;
+    border: 0 !important; box-shadow: none !important; padding: 0 !important;
+}
+#refmod-bar2 { justify-content: flex-start !important; margin: 0 !important; }
+#refmod-bar2 > *, #refmod-bar2 .form > * { flex: 0 0 auto !important; min-width: 0 !important; }
+#refmod-bar > * { flex: 1 1 0 !important; min-width: 0 !important; }
+/* ⚠️ 隣り合う入力は Gradio が 1 枚の `.form` にまとめるので、間隔は `.form` の中で取る（行の gap は効かない）*/
+#refmod-bar .form { gap: 16px !important; flex-wrap: nowrap !important; align-items: flex-end !important; }
+/* 見出しの「Strength」も左の「RefMod」と同じ高さに（数値欄のぶん見出しが高いので下寄せ）*/
+#refmod-str .head { align-items: flex-end !important; }
+#refmod-str .head [data-testid="block-info"] { margin-bottom: 0 !important; }
+/* 🆕 2026-10-16（1.7 #308）Strength の見出しだけ約 2px 高かった（利用者指摘）。検索欄の入力は高さ 38.2px、
+   Strength のバーの入れ物は 40px で、どちらも下端そろえなので、見出しが入れ物の差（1.8px）だけ上にずれていた。
+   見出しの字だけを 1.8px 下げる（position: relative なので箱・バー・数値欄の位置は動かない）*/
+#refmod-str .head [data-testid="block-info"] { position: relative !important; top: 1.8px !important; }
+#refmod-str .head > label { display: flex !important; align-items: flex-end !important; align-self: stretch !important;
+                            margin-top: 0 !important; margin-bottom: 0 !important; }
+#refmod-str .slider_input_container { height: 40px !important; display: flex !important; align-items: center !important;
+                                      margin: 0 !important; padding: 0 !important; }
+#refmod-bar .form > * { flex: 1 1 0 !important; min-width: 0 !important; }
+/* 🆕 トークン上限は右端に狭く（検索・Strength は残りを半分ずつ）*/
+#refmod-bar .form > #refmod-cap, #refmod-bar > #refmod-cap { flex: 0 0 150px !important; }
+/* 🆕 2026-10-01 2 列 × 2 段（上: 保存名｜大きさ、下: チェック｜ボタン）。列の間は上の検索欄と同じ 16px */
+#refmod-save-row .form, #refmod-save-row2 .form { gap: 16px !important; flex-wrap: nowrap !important; }
+/* 🆕 段の間は基本設定の箱（#wh-col .form の gap）と同じ 14px。上の参照欄との間は従来どおり 10px */
+/* 🆕 2026-10-01 保存名〜「RefMod を保存」を 1 つの箱に（利用者指定。基本設定の箱と同じ枠・余白）。
+   上の参照欄との間は他の箱と同じ Gradio の --layout-gap（16px）に任せる（margin は 0）*/
+#refmod-save-box { gap: 14px !important; margin: 0 !important; padding: 10px 12px !important;
+                   border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+                   background: var(--h3-panel) !important; }
+/* 🔴 保存名（Textbox）と大きさ（Dropdown）は見出しの作りが違い、上寄せだと箱が数 px ずれる（利用者指摘）。
+   下端でそろえ、見出しの下の間隔も同じにする */
+#refmod-save-row .form { align-items: flex-end !important; }
+#refmod-name [data-testid="block-info"], #refmod-size [data-testid="block-info"], #refmod-size .container > span {
+    margin-bottom: 8px !important; display: block !important; line-height: 1.4 !important;
+}
+#refmod-save-row .form > *, #refmod-save-row > * { flex: 1 1 0 !important; min-width: 0 !important; }
+/* 下段: チェックは左寄せ、ボタンは右寄せ（元の大きさのまま）*/
+#refmod-save-row2 { align-items: center !important; justify-content: space-between !important; gap: 16px !important;
+                    flex-wrap: nowrap !important; margin-top: 0 !important; }
+#refmod-save-row2 > *:not(#refmod-save-btn) { flex: 1 1 auto !important; min-width: 0 !important; }
+#refmod-save-row { align-items: flex-end !important; gap: 16px !important; flex-wrap: nowrap !important;
+                   margin-top: 0 !important; }      /* 上の間隔は #refmod-save-box が持つ */
+/* ラベル・入力の字は「基本設定」の箱（#wh-col / #seed-panel）と同じ: ラベル 12px・muted・字間 0.04em、
+   入力 13px・--h3-text。Dropdown のラベルは `div.container > span`（4000 行台の注記）*/
+#refmod-dd .container, #refmod-dd > .container, #refmod-dd .container > span,
+#refmod-str label, #refmod-str label > span:first-child, #refmod-str .head span,
+#refmod-name label, #refmod-name label > span:first-child,
+#refmod-q label, #refmod-q label > span:first-child,
+#refmod-size .container > span, #refmod-size [data-testid="block-info"],
+#refmod-cap .container > span, #refmod-cap [data-testid="block-info"] {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#refmod-dd .container input, #refmod-dd .container .wrap-inner, #refmod-dd .token, #refmod-dd .token *,
+#refmod-name textarea, #refmod-name input, #refmod-q textarea, #refmod-q input, #refmod-str input[type="number"] {
+    color: var(--h3-text) !important; font-size: 13px !important; letter-spacing: 0 !important;
+}
+/* 0 / 1 の端の数字は出さない（浮いて見える。値は右上の数値欄で分かる）
+   ⚠️ Gradio 6.27 のクラス名は **`min_value` / `max_value`（下線）**。`min-value` では当たらない（実測） */
+#refmod-str .min_value, #refmod-str .max_value { display: none !important; }
+/* 選んだ名前の札の周りは詰める（Seed 欄の 🎲 ♻️ と入力の枠の隙間＝約 3px と同じ）。
+   ⚠️ `#refmod-dd .wrap` だと読み込み中表示（status-tracker も .wrap）にも当たるので `.container > .wrap` で名指し。
+   ⚠️ min-height を持たせると札の下にだけ余りが出る（上寄せのため）。高さは中身に任せ、上下中央にそろえる */
+#refmod-dd .container > .wrap { padding: 3px 8px 3px 3px !important; min-height: 40px !important;
+                                box-sizing: border-box !important; align-items: center !important; }
+#refmod-dd .wrap-inner { padding: 0 !important; gap: 3px !important; min-height: 0 !important;
+                         align-items: center !important; align-content: center !important; }
+/* 札の高さは箱の中身いっぱい（40 − 枠 2 − 上下 3×2 = 32px）。札が低いと上に寄って**下だけ**空く
+   （実機 2026-09-29: 札 27.5px で下が約 8px）。Seed 欄の 🎲 ♻️（34px／入力 40px）と同じく全方向 3px */
+#refmod-dd .token { height: 32px !important; box-sizing: border-box !important; display: inline-flex !important;
+                    align-items: center !important; }
+#refmod-dd .token { margin: 0 !important; padding: 0 8px !important; }
+/* ボタンは LORA タブの「取り込む」と同じ見た目（字の大きさ・字間・色）。高さは隣の入力にそろえる */
+#refmod-save-btn {
+    flex: 0 0 auto !important; min-width: 140px !important; height: 40px !important; margin: 0 0 0 auto !important;   /* 右寄せ */
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#refmod-save-btn:hover { background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important;
+                         color: var(--h3-text) !important; }
+/* 一覧は上の設定欄と同じ横幅（HTML 部品の内側の余白を消す）。注記は箱の最下部 */
+#refmod-save-msg, #refmod-info, #refmod-info > div, #refmod-info .prose, #refmod-info .html-container {
+    padding: 0 !important; margin-left: 0 !important; margin-right: 0 !important;
+    border: 0 !important; background: none !important; min-height: 0 !important; max-width: none !important;
+}
+#refmod-save-msg p {
+    font-size: 12px !important; color: var(--h3-muted) !important; margin: 6px 0 0 0 !important;
+    letter-spacing: 0.04em !important;
+}
+/* 🆕 2026-10-01 窮屈だったので広げる（利用者: 基本設定くらいの幅に）。強さのバーは右半分（基本設定の 2 列と同じ割り）、
+   サムネイルは 84px・間隔 12px、ラベルと大きさの行間も空ける */
+/* 🆕 2026-10-01 選んだ RefMod の一覧は小さなカードを横に並べる（数が増えても縦に伸びすぎない。利用者指定）。
+   カード 1 枚＝名前と強さのバー → 参照 n 件・トークン → サムネイル 52px（大きさはマウスを載せた説明に出す）*/
+/* 🆕 2026-10-01 箱の間は基本設定の箱の間と同じ Gradio の --layout-gap（16px）にそろえる（自前の margin を足さない。
+   カード同士も 16px）。利用者指定 */
+#refmod-info .rm-box { margin-top: 0; font-size: 12px; line-height: 1.45; }
+#refmod-info .rm-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+                         gap: var(--layout-gap, 16px); }
+#refmod-info .rm-item { border: 1px solid var(--h3-border); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+/* 🔴 字は UI の決まりに合わせる（利用者に何度も指摘されている）: 名前は --h3-text3・12px・400、補足は muted。
+   --h3-text（白）は使わない。Gradio の .prose が子要素へ字を当てるので !important で名指し */
+#refmod-info .rm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-width: 0; }
+#refmod-info .rm-hl { flex: 1 1 auto; min-width: 0; }
+#refmod-info .rm-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 🆕 選んだ順の番号（ピッカーの .rmp-no と同じ見た目）*/
+#refmod-info .rm-no { flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
+                      border-radius: 9px; background: var(--h3-accent); color: #000 !important; font-size: 11px !important;
+                      line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 400 !important; }
+#refmod-info .rm-name, #refmod-info .rm-title {
+    font-size: 12px !important; color: var(--h3-text3) !important; font-weight: 400 !important; letter-spacing: 0 !important;
+}
+#refmod-info .rm-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#refmod-info .rm-sub { font-size: 11px !important; color: var(--h3-muted) !important; letter-spacing: 0.04em !important;
+                       font-weight: 400 !important; margin-top: 2px;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* RefMod ごとの強さ（右・箱入り。左の 2 行の上下中央にそろう）*/
+#refmod-info .rm-each { flex: 0 1 44%; min-width: 150px; display: flex; align-items: center; gap: 8px; cursor: default;
+                        border: 1px solid var(--h3-border); border-radius: 6px; background: none;   /* 箱だけ。灰色にしない（利用者指定）*/
+                        padding: 6px 10px; box-sizing: border-box; }
+#refmod-info .rm-each input[type=range] { flex: 1 1 auto; width: auto; min-width: 60px; accent-color: var(--h3-accent); }
+#refmod-info .rm-each-v { font-size: 11px; color: var(--h3-muted); min-width: 28px; text-align: right;
+                          font-variant-numeric: tabular-nums; }
+#refmod-each { display: none !important; }        /* 受け渡し用。見せない */
+#refmod-info .rm-refs { display: flex; flex-wrap: wrap; gap: 6px 6px; }
+#refmod-info .rm-ref { width: 52px; text-align: center; cursor: pointer; user-select: none; }
+#refmod-info .rm-ref img, #refmod-info .rm-noimg {
+    width: 52px; height: 52px; object-fit: cover; border-radius: 5px; display: block; margin: 0;
+    border: 1px solid transparent;
+}
+#refmod-info .rm-ref:hover img, #refmod-info .rm-ref:hover .rm-noimg { border-color: var(--h3-accent); }
+#refmod-info .rm-noimg { display: flex; align-items: center; justify-content: center;
+                         background: var(--h3-elev); font-size: 18px; }
+#refmod-info .rm-cap { font-size: 10px; color: var(--h3-muted); margin-top: 3px; line-height: 1.3; letter-spacing: 0;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#refmod-info .rm-note { font-size: 12px; color: var(--h3-muted); letter-spacing: 0.04em; margin-top: 8px;
+                        white-space: pre-line; }
+
+/* 🆕 2026-10-01 RefMod ピッカー（FINDER のアイコン並びの小型版）。__RMP_COLS__ 列・__RMP_ROWS__ 段を超えたら箱の中でスクロール。
+   1 マスは正方形なので、段の高さは「欄の幅 ÷ 列数」から cqw で出す（#cl-gallery と同じ流儀。先に vh の保険）*/
+#refmod-dd, #refmod-pick-act { display: none !important; }      /* 選択の実体と受け渡し口。見せない */
+/* 🔴 列ごと隠す（部品だけ隠すと Gradio の .form の枠が空で残り、線に見える）*/
+#refmod-hidden { display: none !important; }
+#refmod-pick, #refmod-pick > div:not(.rmp-wrap), #refmod-pick .prose, #refmod-pick .html-container {
+    padding: 0 !important; margin-left: 0 !important; margin-right: 0 !important;
+    border: 0 !important; background: none !important; min-height: 0 !important; max-width: none !important;
+}
+/* ⚠️ cqw は祖先のコンテナから測る。包み（.rmp-wrap）をコンテナにする（中身の幅＝並びの幅）*/
+#refmod-pick .rmp-wrap { border: 1px solid var(--h3-border); border-radius: 8px; padding: 8px 10px 10px;
+                         margin-top: 0; container-type: inline-size; }
+#refmod-pick .rmp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+/* 🔴 見出し・「すべて外す」はラベルと同じ字（12px・muted・400・字間 0.04em）。白くしない（利用者指摘）*/
+#refmod-pick .rmp-head, #refmod-pick .rmp-head * {
+    font-size: 12px !important; color: var(--h3-muted) !important; font-weight: 400 !important; letter-spacing: 0.04em !important;
+}
+#refmod-pick .rmp-clear { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+#refmod-pick .rmp-clear:hover { color: var(--h3-text3) !important; }
+#refmod-pick .rmp-empty { font-size: 12px; color: var(--h3-muted); letter-spacing: 0.04em; padding: 6px 0; }
+#refmod-pick .rmp-grid {
+    display: grid; grid-template-columns: repeat(__RMP_COLS__, minmax(0, 1fr)); gap: __GGAP__px;
+    align-content: start; overflow-y: auto;
+    max-height: 40vh;
+    max-height: calc(__RMP_ROWS__ * (100cqw - __RMP_GAPSUM__px) / __RMP_COLS__ + (__RMP_ROWS__ - 1) * __GGAP__px);
+}
+#refmod-pick .rmp-tile { position: relative; aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden;
+                         border: 1px solid var(--h3-border); background: var(--h3-elev);
+                         cursor: pointer; user-select: none; }
+#refmod-pick .rmp-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#refmod-pick .rmp-noimg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                          font-size: 22px; padding-bottom: 28px; }
+/* 🆕 2026-10-01 名前は 2 行まで（1 行だと短すぎて読めない。利用者指定）。長い英数字も折り返す */
+#refmod-pick .rmp-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 5px;
+                        font-size: 11px !important; color: var(--h3-text3) !important; font-weight: 400 !important;
+                        letter-spacing: 0 !important; line-height: 1.3; background: var(--h3-caption-bg);
+                        white-space: normal; word-break: break-all; overflow: hidden;
+                        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+#refmod-pick .rmp-tile:hover { border-color: var(--h3-border-hover); }
+#refmod-pick .rmp-tile.on { outline: 2px solid var(--h3-accent); outline-offset: -2px; border-color: var(--h3-accent); }
+#refmod-pick .rmp-no { position: absolute; top: 4px; left: 4px; min-width: 18px; height: 18px; padding: 0 4px;
+                       border-radius: 9px; background: var(--h3-accent); color: #000; font-size: 11px;
+                       line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* 🆕 2026-10-01 FINDER の複数選択（⌘ / Ctrl＋クリック。RMM_MULTI_JS）。印は Gradio の選択と同じ枠。
+   複数選択中は Gradio の .selected（1 件）だけの枠は消す（外した 1 件に枠が残らないように）*/
+#rmm-multi-act { display: none !important; }
+#rmm-gallery .thumbnail-item.rmm-multi {
+    outline: 2px solid var(--h3-accent) !important; outline-offset: -2px !important; border-color: var(--h3-accent) !important;
+}
+#rmm-gallery.rmm-multi-on .thumbnail-item.selected:not(.rmm-multi),
+#rmm-gallery.rmm-cleared .thumbnail-item.selected {
+    outline: none !important; border-color: var(--h3-border) !important;
+}
+#rmm-detail .rmm-d-multi { margin: 6px 0 8px 0; padding-left: 18px; font-size: 12px; color: var(--h3-text3); }
+#rmm-detail .rmm-d-multi li { margin: 2px 0; word-break: break-all; }
+/* ダブルクリックでプロンプトへ入れたとき、一瞬だけ光らせる（PROMPT_TAG_JS）*/
+.h3-tag-flash { outline: 2px solid var(--h3-accent) !important; outline-offset: 1px; transition: outline-color .4s; }
+
+/* ============================================================
+   12.7 CharSheet（キャラクターシート）欄
+   ============================================================ */
+/* ⚠️ プリセットの Dropdown と ↺ を横に並べると、Gradio が入力側を `.form` で包んで
+   アコーディオンの中にもう1つ箱が見える（#cl-bar と同じ罠）。`.form` を透明にして、
+   枠は Dropdown 自身に残す。
+   ⚠️ そろえるのは**下端**。Dropdown はラベルのぶん背が高いので、center だと
+   ↺ が浮いて見える */
+#sheet-bar {
+    align-items: flex-end !important; gap: 8px !important;
+    flex-wrap: nowrap !important; margin-bottom: 8px !important;
+}
+#sheet-bar .form {
+    padding: 0 !important; margin: 0 !important;
+    background: none !important; background-color: transparent !important;
+    border: 0 !important; box-shadow: none !important; min-height: 0 !important;
+    flex: 1 1 auto !important; width: 100% !important; min-width: 0 !important;
+}
+#sheet-preset { flex: 1 1 auto !important; min-width: 0 !important; }
+/* ⚠️ `.block padded` の背景は**テーマごとに色が違う**（light は白 / dark は #27272a）。
+   ライトでは白い箱の中で見えないのに、ダークだけ「↺ の手前で終わる箱」が現れて
+   途中で切れたように見える（実測: dark で rgb(39,39,42)・padding 10px 12px）。
+   #cl-bar と同じく**箱は持たせず**、枠はドロップダウン自身（.wrap）に任せる */
+#sheet-bar .block {
+    background: none !important; background-color: transparent !important;
+    border: 0 !important; box-shadow: none !important; padding: 0 !important;
+}
+/* ↺ は LoRA 欄の 🔄 と同じ白基調にそろえる（共通の .icon-btn は灰色で、ここだけ浮く）*/
+#sheet-bar .icon-btn {
+    flex: 0 0 38px !important; margin-top: 0 !important;
+    background: var(--h3-icon-btn) !important;
+    border: 1px solid var(--h3-border2) !important;
+    color: var(--h3-muted) !important;
+}
+#sheet-bar .icon-btn:hover {
+    background: var(--h3-elev) !important;
+    border-color: var(--h3-border-hover) !important;
+    color: var(--h3-text) !important;
+}
+/* 🆕 2026-09-30 メインプロンプトを作成（プリセットの右）と注記は RefMod の保存行と同じ見た目（基本設定の箱に準拠）*/
+#sheet-a-btn {
+    flex: 0 0 auto !important; height: 40px !important; margin: 0 !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#sheet-a-btn:hover { background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important;
+                     color: var(--h3-text) !important; }
+#sheet-a-info, #sheet-a-info > div, #sheet-a-info .prose {
+    padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important;
+    min-height: 0 !important; max-width: none !important;
+}
+#sheet-a-info p, #sheet-a-info li {
+    font-size: 12px !important; color: var(--h3-muted) !important; margin: 0 0 6px 0 !important;
+    letter-spacing: 0.04em !important; line-height: 1.55 !important;
+}
+/* 🆕 2026-09-30 空白を詰める: 注記が空のとき・画像が無い役割の行は箱ごと消す（列の gap 16px が残るため）。
+   ⚠️ Gradio 6 は visible=False の部品を DOM に描かない → 「役割の欄を含まない行」で判定できる */
+#sheet-a-info:not(:has(.md > *)) { display: none !important; }
+#sheet-roles > .row:not(:has([id^="sheet-role-"])) { display: none !important; }
+#sheet-roles:not(:has([id^="sheet-role-"])) { display: none !important; }
+/* 🆕 2026-09-30 生成フレーム数・シートの列数・参照の色味を 1 つの箱に（gr.Group）。
+   Group は子を gap 1px＋背景色で区切り線に見せるので、中の線は消して外枠だけ残す */
+#sheet-opts, #sheet-opts .styler, #sheet-opts .form { gap: 0 !important; background: var(--block-background-fill) !important; }
+#sheet-opts { border-radius: var(--block-radius) !important; overflow: hidden; }
+#sheet-opts #sheet-opt-row { padding-top: 12px !important; gap: 24px !important; justify-content: flex-start !important; }
+#sheet-opts #sheet-opt-row .form { flex-direction: row !important; gap: 24px !important; justify-content: flex-start !important;
+                                   flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
+#sheet-opts #sheet-opt-row .block { flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }   /* スライダーとの間を上下の余白と釣り合わせる（利用者: 詰まって見える）*/
+/* 🆕 2026-09-30 REFMOD ▸ BUILDER の素材一覧（種類ごと）*/
+#rmb-drop { border: 1px dashed var(--h3-border3) !important; border-radius: 8px !important; }
+#rmb-drop label, #rmb-drop label *, #rmb-drop .center *, #rmb-drop .wrap * {
+    color: var(--h3-muted) !important; font-size: 12px !important; letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#rmb-act { display: none !important; }
+/* #178 素材の枠は上のドロップ欄・選択欄と同じ幅（gr.HTML の余白を消す）*/
+#rmb-list, #rmb-list > div { padding: 0 !important; margin: 0 !important; border: 0 !important; background: none !important; }
+/* 見出しの字は基本設定と同じ（12px・muted・字間 0.04em）、箱の角は丸める */
+#rmb-rm-dd .container > span, #rmb-rm-dd [data-testid="block-info"],
+#rmb-name [data-testid="block-info"], #rmb-folder .container > span, #rmb-folder [data-testid="block-info"],
+#rmb-size .container > span, #rmb-size [data-testid="block-info"] {
+    font-size: 12px !important; color: var(--h3-muted) !important; letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#rmb-rm-dd, #rmb-form, #rmb-form .form, #rmb-drop { border-radius: 8px !important; }
+#rmb-rm-dd, #rmb-form .form { overflow: hidden !important; }
+/* STATUS（作成の結果・読めなかったファイルの知らせ）は LORA / FINDER の STATUS と同じ箱・同じ字（利用者指定）*/
+#rmb-status-panel {
+    border: 1px solid var(--h3-border) !important; border-radius: 8px !important;
+    background: var(--h3-panel) !important; padding: 10px 12px !important;
+    gap: 0 !important; min-height: 120px !important; margin: 0 !important;
+}
+#rmb-status-panel * { box-shadow: none !important; }
+#rmb-status-panel .block, #rmb-status-panel .form, #rmb-status-panel > div {
+    background: none !important; background-color: transparent !important;
+    border: none !important; padding: 0 !important; margin: 0 !important; min-height: 0 !important;
+}
+.rmb-box { border: 1px solid var(--h3-border); border-radius: 8px; padding: 10px 12px 12px 12px; margin-top: 0;
+           background: var(--block-background-fill, var(--h3-panel)); min-height: 120px; }
+.rmb-empty { font-size: 12px; color: var(--h3-muted2); padding: 40px 4px; text-align: center; }
+.rmb-cell { cursor: grab; }
+.rmb-cell.rmb-dragging { opacity: 0.4; }
+.rmb-cell.rmb-over img, .rmb-cell.rmb-over .rmb-noimg { outline: 2px solid var(--h3-accent, #f59e0b); outline-offset: 1px; }
+.rmb-ops { display: flex; justify-content: center; gap: 6px; margin-top: 3px; }
+.rmb-ops button { width: 26px; height: 22px; padding: 0; border-radius: 5px; font-size: 12px; line-height: 20px;
+    background: var(--h3-elev); border: 1px solid var(--h3-border2); color: var(--h3-muted); cursor: pointer; }
+.rmb-ops button:hover { background: var(--h3-border); color: var(--h3-text); }
+.rmb-ops .rmb-del:hover { background: var(--h3-danger-bg); border-color: var(--h3-danger-border); color: var(--h3-on-danger); }
+#rmb-zoom { position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, 0.92);
+    display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+#rmb-zoom img, #rmb-zoom video { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); object-fit: contain; cursor: default; }
+#rmb-zoom audio { width: min(640px, 90vw); cursor: default; }
+#rmb-zoom .rmb-zoom-x { position: fixed; top: 12px; right: 16px; width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12); color: #fff; border: 0; font-size: 18px; cursor: pointer; }
+.rmb-group { margin: 10px 0 4px 0; }
+.rmb-head { font-size: 12px; color: var(--h3-muted); letter-spacing: 0.04em; margin-bottom: 6px; }
+.rmb-note { margin-left: 10px; color: var(--h3-muted2); font-size: 11px; }
+.rmb-cells { display: flex; flex-wrap: wrap; gap: 8px; }
+.rmb-cell { width: 96px; }
+.rmb-cell img, .rmb-noimg { width: 96px; height: 96px; object-fit: cover; border-radius: 6px;
+    border: 1px solid var(--h3-border); display: flex; align-items: center; justify-content: center;
+    background: var(--h3-elev); font-size: 28px; }
+.rmb-cap { font-size: 11px; color: var(--h3-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rmb-clear-btn, #rmb-build-btn {
+    height: 40px !important; margin: 0 0 10px 0 !important; flex-grow: 0 !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; color: var(--h3-muted) !important;
+    font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#rmb-build-btn, #rmb-clear-btn { width: 100% !important; margin: 6px 0 0 0 !important; }
+#rmb-clear-btn:hover { background: var(--h3-danger-bg) !important; border-color: var(--h3-danger-border) !important;
+                       color: var(--h3-on-danger) !important; }
+#rmb-build-btn:hover {
+    background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important; }
+#rmb-status-label p { font-size: 12px !important; color: var(--h3-muted) !important;
+                      letter-spacing: 0.16em !important; font-weight: 400 !important; margin: 0 0 8px 0 !important; }
+#rmb-msg p, #rmb-msg li { font-size: 12px !important; color: var(--h3-text3) !important; line-height: 1.6 !important;
+                          letter-spacing: 0 !important; font-weight: 400 !important; margin: 0 0 6px 0 !important; }
+/* 撮る角度・役割・抽出フレーム・B プロンプトの見出しも基本設定と同じ（12px・muted・字間 0.04em）。
+   Dropdown の見出しは `div.container > span`（別 DOM） */
+#sheet-frames [data-testid="block-info"], #sheet-cols [data-testid="block-info"],
+#sheet-shots [data-testid="block-info"], #sheet-idx [data-testid="block-info"],
+#sheet-bprompt [data-testid="block-info"], #sheet-auto label, #sheet-auto label span,
+#sheet-color label, #sheet-color label span, #sheet-cutbg label, #sheet-cutbg label span,
+[id^="sheet-role-"] .container, [id^="sheet-role-"] .container > span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#sheet-shots label span, [id^="sheet-role-"] .container input, [id^="sheet-role-"] .container .wrap-inner {
+    font-size: 13px !important; letter-spacing: 0 !important;
+}
+/* 抽出フレームの行: 欄と auto を下端でそろえ、auto は右寄せ・箱の高さ（40px）の中央。行の二重ボックスは消す */
+#sheet-idx-row { align-items: flex-end !important; gap: 0 !important; flex-wrap: nowrap !important; }
+/* ⚠️ 隣り合う入力は Gradio が 1 枚の `.form` にまとめる（縦積み）。横並びは `.form` の中で作る */
+#sheet-idx-row .form { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important;
+                       align-items: stretch !important; gap: 0 !important; }   /* 隙間 0 で 1 つの箱に見せる */
+#sheet-idx-row .form > #sheet-idx { flex: 1 1 auto !important; min-width: 0 !important; }
+#sheet-auto { flex: 0 0 auto !important; display: flex !important; justify-content: flex-end !important;
+              width: auto !important; min-width: 0 !important; align-self: stretch !important;
+              align-items: flex-end !important; height: auto !important;
+              padding-bottom: 21px !important; }   /* 余白 10px ＋（入力の箱 40px − 字 17px）/ 2 ＝ 入力の上下中央 */
+#sheet-auto label { margin: 0 !important; gap: 6px !important; }
+/* 抽出フレームは1行に保つ（Textbox は textarea で描かれるので折り返しを切る）*/
+#sheet-idx textarea, #sheet-idx input {
+    white-space: nowrap !important; overflow-x: auto !important;
+    overflow-y: hidden !important; resize: none !important;
+}
+/* Gradio の `info=` は `.info-text`。このアプリでは他に使っていないので素のままだと
+   テーマから外れる（実測 light rgb(107,107,118)）。注記の見え方にそろえる */
+#sheet-idx .info-text, #sheet-bprompt .info-text {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; line-height: 1.55 !important;
+}
+/* B プロンプトは英文が長いので、少し小さめ・行間広めにして読めるようにする */
+#sheet-bprompt textarea {
+    font-size: 12px !important; line-height: 1.55 !important;
+    white-space: pre-wrap !important;
+}
+
+/* ============================================================
+   13. 文字トーンの統一（この節が最終上書き）
+   ============================================================ */
+/* タブ */
+.gradio-container .tab-nav button,
+.gradio-container button.tab-nav-button,
+.gradio-container [role="tablist"] button {
+    color: var(--h3-muted) !important; font-size: 11px !important;
+    letter-spacing: 0.16em !important; font-weight: 400 !important;
+}
+.gradio-container .tab-nav button.selected,
+.gradio-container button.tab-nav-button.selected,
+.gradio-container [role="tablist"] button[aria-selected="true"] {
+    color: var(--h3-accent-text) !important; font-weight: 400 !important;
+}
+
+/* 英字ラベル（PROMPT / STATUS / BATCH / PREVIEW / RECENT） */
+#mode-prompt-panel label, #mode-prompt-panel label > span:first-child,
+#batch-panel label, #batch-panel label > span:first-child,
+#status-panel label, #status-panel label > span:first-child,
+#preview-box label, #preview-box label > span:first-child,
+#lib-preview-box label, #lib-preview-box label > span:first-child,
+/* ⚠️ SEGMENTS の「SEGMENT」だけこの並びから漏れていて、字間が詰まって見えていた
+   （2026-08-26 の指摘）。英字ラベルは**必ずこの1箇所にまとめる** */
+#seg-preview-box label, #seg-preview-box label > span:first-child,
+#lora-status-label p,
+#recent-label p, #lib-info p {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.16em !important; font-weight: 400 !important;
+}
+
+/* 基本設定の各ラベル（日本語なので字間は詰める） */
+#wh-col label, #wh-col label > span:first-child,
+#seed-panel label, #seed-panel label > span:first-child,
+#tstr-col label, #tstr-col label > span:first-child,
+.panel-acc > .label-wrap span, .panel-acc > button span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+
+/* Turbo LoRA のラベルは label ではなく div.container 内にある。
+   ⚠️ Dropdown のラベルは他の部品と DOM が違う（`<label><span>` ではなく
+   `div.container > span`）ので、共通のラベル規則に当たらない。実測すると
+   14px / rgb(228,228,231) のまま素で出る。**Dropdown を足すときはここへ並べる。** */
+#lora-dd .container, #lora-dd > .container,
+#lora-dd .container > span, #tstr-col #lora-dd .container,
+#sheet-preset .container, #sheet-preset > .container,
+#sheet-preset .container > span {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#lora-dd .container input, #lora-dd .container .wrap-inner,
+#lora-dd .container .single-select,
+#sheet-preset .container input, #sheet-preset .container .wrap-inner,
+#sheet-preset .container .single-select {
+    color: var(--h3-text3) !important; font-size: 13px !important; letter-spacing: 0 !important;
+}
+
+/* Motion Context のチェックボックス / Segment Length（日本語なので字間は詰める） */
+#motion-ctx, #motion-ctx label, #motion-ctx label span, #motion-ctx span,
+#seg-len label, #seg-len label > span:first-child {
+    font-size: 12px !important; color: var(--h3-muted) !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#motion-ctx span { white-space: normal !important; line-height: 1.5 !important; }
+#motion-ctx input[type="checkbox"] {
+    accent-color: var(--h3-accent) !important; flex: 0 0 auto !important;
+}
+/* 間隔は margin ではなく padding で取る。margin だと子の背景の外側になり、
+   .form の背景（枠の色 rgb(63,63,70)）がそこだけ帯になって見えてしまう */
+#seg-len { margin-top: 0 !important; padding-top: 8px !important; }
+#seg-len .min-value, #seg-len .max-value,
+#seg-len .min_value, #seg-len .max_value { color: var(--h3-faint) !important; font-size: 11px !important; }
+/* 箱を描いているのは .form 自身。触ると箱ごと消えるので、.form には手を出さない。
+   部品の間に出る太いグレーの帯は、.form の背景（＝枠の色）が子と子の隙間から
+   透けているもの。隙間を 0 にし、子に箱の内側と同じ色を敷いて塞ぐ。
+   ついでに子が持つ境界線も消す（線・帯どちらの実装でも消えるようにしてある） */
+/* ⚠️ **箱を描いているのは `.form` 自身。** その背景が枠の色なので、白い箱の中で
+   ここだけ灰色に見えていた（2026-08-26 の指摘）。背景を箱の内側と同じ色にし、
+   代わりに**枠は border で描く**（消すと箱ごと消えてしまうため） */
+#motion-group .form, #up-cfg .form, #upi-cfg .form {
+    background: var(--h3-elev2) !important;
+    background-color: var(--h3-elev2) !important;
+    border: 1px solid var(--h3-border) !important;
+    border-radius: 8px !important; overflow: hidden !important;
+}
+#motion-group .form { gap: 0 !important; }
+#motion-group .form > * {
+    border: 0 !important; border-width: 0 !important; border-color: transparent !important;
+    box-shadow: none !important; outline: none !important;
+    background-color: var(--h3-elev2) !important;
+}
+/* チェックボックスはラベルの右端に置く */
+#motion-ctx label {
+    display: flex !important; width: 100% !important;
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important; align-items: center !important;
+}
+#motion-ctx input[type="checkbox"] { margin: 0 0 0 10px !important; }
+
+/* ドラフトモードと Sol-Attn を横並び1行にする（gr.Row #draft-sol-row）。
+   ⚠️ CSS の inline-block では駄目。Gradio の `.form` は flex-column なので
+      子を inline-block にしても縦に積まれる（2026-09-02 に実際に外した）。 */
+/* パネルの中身は枠なし。gr.Row を入れても箱が割れないようにする。
+   ⚠️ `#tstr-panel .block` は **パネル自身にも当たる**ことがある（Gradio は
+      Column にも .block を付ける）。それで枠ごと消えた（2026-09-02）。
+      だから **子孫を消したあとに、親の枠を描き直す**。順番が意味を持つ。 */
+#tstr-panel > *, #tstr-panel .row, #tstr-panel .form, #tstr-panel .block {
+    border: 0 !important; border-width: 0 !important;
+    background: none !important; box-shadow: none !important;
+    border-radius: 0 !important; padding: 0 !important;
+    min-height: 0 !important;
+}
+/* 🔴 Refiner の箱も同じ作法で1つにまとめる（2026-09-06 / 利用者指摘）。
+   チェックボックスの行（gr.Row）が `.form` の grouping を切るので、
+   チェック欄とスライダー欄が**2つの箱**に割れて見えていた。
+   ⚠️ 順番が意味を持つ: **子孫を消してから、親の枠を描き直す**。 */
+#face-group > *, #face-group .row, #face-group .form, #face-group .block {
+    border: 0 !important; border-width: 0 !important;
+    background: none !important; box-shadow: none !important;
+    border-radius: 0 !important; padding: 0 !important;
+    min-height: 0 !important;
+}
+#face-group {
+    display: flex !important; flex-direction: column !important;
+    gap: 14px !important;
+    border: 1px solid var(--h3-border) !important;
+    border-radius: 8px !important;
+    background: var(--block-background-fill, var(--h3-panel)) !important;   /* Steps の箱と同じ理由（2026-09-15） */
+    padding: 12px !important;
+}
+/* 🔴 **箱の gap だけでは効かない。** Gradio は連続する入力を1枚の `.form` に
+   まとめるので、スライダー4本は `#face-group` から見ると**子1つ**。
+   間隔を空けるには `.form` の中にも gap を入れる必要がある
+   （上のフラット化で padding を 0 にしているぶん、ここで戻す）。 */
+#face-group .form {
+    display: flex !important; flex-direction: column !important;
+    gap: 14px !important;
+}
+/* ラベルと目盛りが詰まって見えるので、わずかに離す */
+#face-group .form label { margin-bottom: 2px !important; }
+/* 🔴 **レールの長さを揃える。** Gradio のスライダーは
+   `.slider_input_container`（flex）＝ `.min_value` + `input[type=range]` + `.max_value`。
+   両端の数字は幅が中身任せなので、"2 … 4" と "0.1 … 0.95" でレールの長さが変わる。
+   ⚠️ **両端に同じ固定幅**を与えて初めて揃う（片側だけでは揃わない）。
+   `:has()` の側はクラス名が変わった版への保険。 */
+#face-group .slider_input_container,
+#face-group div:has(> input[type="range"]) {
+    display: flex !important; align-items: center !important; gap: 8px !important;
+}
+#face-group .slider_input_container > input[type="range"],
+#face-group div:has(> input[type="range"]) > input[type="range"] {
+    flex: 1 1 auto !important; min-width: 0 !important;
+}
+#face-group .min_value, #face-group .max_value,
+#face-group div:has(> input[type="range"]) > span {
+    flex: 0 0 36px !important; width: 36px !important;
+    margin: 0 !important; font-variant-numeric: tabular-nums !important;
+}
+#face-group .min_value,
+#face-group div:has(> input[type="range"]) > span:first-child {
+    text-align: right !important;
+}
+#face-group .max_value,
+#face-group div:has(> input[type="range"]) > span:last-child {
+    text-align: left !important;
+}
+/* 行の中の2つのチェックは横に並べたまま。
+   ⚠️ 上の `#face-group .form { flex-direction: column }` はチェック側の `.form` にも
+   当たるので、ここで**行方向に戻す**（子孫セレクタなので後勝ちにするには詳細度が要る）。 */
+#refiner-row {
+    display: flex !important; flex-direction: row !important;
+    gap: 12px !important; align-items: center !important;
+    flex-wrap: nowrap !important;
+}
+/* ⚠️ **子の幅には触らないこと。** 2つのチェックは Gradio の scale で
+   左右**半分ずつ**になっている。`flex: 0 0 auto` にすると等分が壊れる。 */
+#face-group #refiner-row > * {
+    flex: 1 1 0% !important; min-width: 0 !important;
+}
+#face-group #refiner-row .form {
+    display: flex !important; flex-direction: row !important;
+    align-items: center !important;
+}
+
+#tstr-panel {
+    display: flex !important; flex-direction: column !important;
+    gap: 10px !important;
+    border: 1px solid var(--h3-border) !important;
+    border-radius: 8px !important;
+    /* 🔴 2026-09-15: ダークで幅・Seed・Turbo の箱（Gradio の .form の塗り）より暗く見えた。同じ塗りに揃える */
+    background: var(--block-background-fill, var(--h3-panel)) !important;
+    padding: 10px 12px !important;
+}
+/* 🆕 2026-09-30 間隔を Refiner の箱に揃える（利用者: Steps・尺・ドラフトの間が詰まって見える）。
+   Steps と尺は Gradio が 1 枚の `.form` にまとめるので、`.form` の中にも gap が要る（#face-group と同じ作法） */
+#tstr-panel { gap: 14px !important; padding: 12px !important; }
+#tstr-panel .form { display: flex !important; flex-direction: column !important; gap: 14px !important; }
+#tstr-panel .form label { margin-bottom: 2px !important; }
+/* 🆕 2026-09-30 スライダーの上でホイールを回すとスクロールバーが出て少し動く（利用者）。Gradio の .block は
+   overflow:auto で、中身を平らにした箱では 1〜2px はみ出すことがある → 箱の中の .block ははみ出しを見せるだけにする */
+#face-group .block, #tstr-panel .block, #wh-col .block, #seed-panel .block,
+#sheet-opts .block { overflow: visible !important; }
+#draft-sol-row { gap: 10px !important; align-items: center !important;
+                 margin: 0 !important; }
+#draft-sol-row > * { min-width: 0 !important; }
+#t2i-fast label, #sol-on label {
+    display: flex !important; align-items: center !important; gap: 8px !important;
+    white-space: nowrap !important;
+}
+#t2i-fast label .label-text, #sol-on label .label-text {
+    white-space: nowrap !important; overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* スライダーの目盛り数値 */
+#wh-col .min-value, #wh-col .max-value,
+#tstr-col .min-value, #tstr-col .max-value,
+#batch-panel .min-value, #batch-panel .max-value {
+    color: var(--h3-faint) !important; font-size: 11px !important;
+}
+
+/* プルダウン */
+#lora-dd input, #aspect-dd input,
+#lora-dd .wrap-inner, #aspect-dd .wrap-inner,
+#lora-dd .single-select, #aspect-dd .single-select,
+/* 🆕 2026-09-30 REFMOD の選択欄（BUILDER のフォルダ・材料、FINDER のフォルダ）も同じ字に（利用者: 未分類が浮く）*/
+#rmb-folder input, #rmb-folder .wrap-inner, #rmb-folder .single-select,
+#rmb-size input, #rmb-size .wrap-inner, #rmb-size .single-select,
+#refmod-size input, #refmod-size .wrap-inner, #refmod-size .single-select,
+#refmod-cap input, #refmod-cap .wrap-inner, #refmod-cap .single-select,
+#rmb-rm-dd input, #rmb-rm-dd .wrap-inner,
+#rmm-folder-dd input, #rmm-folder-dd .wrap-inner, #rmm-folder-dd .single-select,
+#rmb-name input, #rmm-new-name input, #rmb-name textarea, #rmm-new-name textarea {
+    color: var(--h3-text3) !important; font-size: 13px !important;
+}
+.gradio-container ul.options li, .gradio-container .options .item {
+    color: var(--h3-text3) !important; font-size: 13px !important;
+    background: var(--h3-panel) !important;
+}
+.gradio-container ul.options li:hover, .gradio-container .options .item:hover,
+.gradio-container ul.options li.selected {
+    background: var(--h3-elev) !important; color: var(--h3-text) !important;
+}
+
+/* ドロップゾーンのラベルと案内文 */
+/* ⚠️🔴 **`#create-tabs` を必ず並べること。** ここに並んでいる名前が、Gradio 自身が出す
+   文言（「画像をここにドロップ」「クリックしてアップロード」）やラジオのラベル
+   （「アイコン」「リスト」）を、このアプリのトーン（muted）に落としている。
+   CREATE 下段をアコーディオンからタブに替えたとき `.panel-acc` が外れ、
+   **ライトで文字が黒すぎる / ダークで白すぎる**という形で戻ってきた（実機の指摘 2026-08-29）。
+   欄の入れ物を変えたら、この3つの規則に新しい入れ物の名前を足すこと。 */
+#meta-drop label, #meta-drop label *,
+#ref-drop label, #ref-drop label *, #refmod-drop label, #refmod-drop label *,
+.panel-acc label, .panel-acc label *,
+#create-tabs label, #create-tabs label * {
+    color: var(--h3-muted) !important; font-size: 12px !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#meta-drop .center *, #ref-drop .center *, #refmod-drop .center *, .panel-acc .center *,
+#meta-drop .wrap *, #ref-drop .wrap *, #refmod-drop .wrap *, .panel-acc .wrap *,
+#create-tabs .center *, #create-tabs .wrap *,
+/* UPSCALE の SOURCE も同じトーンに（動画・画像とも。ここだけ Gradio 既定の
+   明るい文字のままで、ダークで白く浮いていた／ライトで黒く沈んでいた） */
+#up-src-panel .center *, #up-src-panel .wrap *,
+#upi-src-panel .center *, #upi-src-panel .wrap *,
+#up-result-box .center *, #up-result-box .wrap *,
+#upi-result-box .center *, #upi-result-box .wrap * {
+    color: var(--h3-muted2) !important; font-size: 12px !important;
+    letter-spacing: 0.02em !important; font-weight: 400 !important;
+}
+#meta-drop svg, #ref-drop svg, #refmod-drop svg, .panel-acc .upload-container svg,
+#create-tabs .upload-container svg,
+#up-src-panel .upload-container svg, #upi-src-panel .upload-container svg {
+    color: var(--h3-muted2) !important; opacity: 0.8 !important;
+}
+
+/* ---- レンジスライダー ---- */
+.gradio-container input[type="range"] {
+    -webkit-appearance: none !important; appearance: none !important;
+    accent-color: var(--h3-accent) !important;
+    height: 6px !important; border-radius: 999px !important;
+    border: none !important; outline: none !important; cursor: pointer !important;
+    background: linear-gradient(var(--h3-accent), var(--h3-accent)) 0 / var(--fill, 0%) 100% no-repeat,
+                var(--h3-track) !important;
+}
+.gradio-container input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px; border-radius: 999px; background: transparent; border: none;
+}
+.gradio-container input[type="range"]::-moz-range-track {
+    height: 6px; border-radius: 999px; background: transparent; border: none;
+}
+.gradio-container input[type="range"]::-moz-range-progress {
+    height: 6px; border-radius: 999px; background: var(--h3-accent);
+}
+.gradio-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 5px; height: 18px; margin-top: -6px;
+    border-radius: 3px; border: none; background: var(--h3-thumb);
+    box-shadow: 0 1px 3px var(--h3-shadow);
+    transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.gradio-container input[type="range"]:hover::-webkit-slider-thumb {
+    background: var(--h3-thumb-hi);
+    box-shadow: 0 0 0 3px var(--h3-accent-soft), 0 1px 3px var(--h3-shadow);
+}
+.gradio-container input[type="range"]:active::-webkit-slider-thumb { background: var(--h3-accent); }
+.gradio-container input[type="range"]::-moz-range-thumb {
+    width: 5px; height: 18px; border-radius: 3px; border: none;
+    background: var(--h3-thumb); box-shadow: 0 1px 3px var(--h3-shadow);
+}

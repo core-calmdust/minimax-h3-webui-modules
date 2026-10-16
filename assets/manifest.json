@@ -1,0 +1,91 @@
+{
+ "format": 1,
+ "scope": "cell3 (MiniMax H3 WebUI core UI) — CSS and JavaScript",
+ "files": [
+  {
+   "name": "style.css",
+   "file": "assets/cell3/style.css",
+   "sha256": "a2d6dea1db605443424b3710942103f62058918b0bc0d1df029c66ecb84bbd62"
+  },
+  {
+   "name": "extra.css",
+   "file": "assets/cell3/extra.css",
+   "sha256": "08b4339627eaa90ef5d093ce0f909f6acdaa892b9d706b46df3375a82ea46e3a"
+  },
+  {
+   "name": "_THEME_APPLY_JS",
+   "file": "assets/cell3/js/theme_apply.js",
+   "sha256": "357a3bc398ad67de2b5cb25eb3d89bd1522c88aa96dd5b5159968f81e3ed228a"
+  },
+  {
+   "name": "CRED_BAR_JS",
+   "file": "assets/cell3/js/cred_bar.js",
+   "sha256": "de54d3c47be14eaf56f75b982588f63d84457c1bd05659109d0d7673c718a4f5"
+  },
+  {
+   "name": "_GRADIO_TEXT_JS",
+   "file": "assets/cell3/js/gradio_text.js",
+   "sha256": "1c380ebdc16d9a53ae0e8494d608f030bfe5c426fc253810c94e78c6e06832fe"
+  },
+  {
+   "name": "REF_DND_JS",
+   "file": "assets/cell3/js/ref_dnd.js",
+   "sha256": "e2df5fe0094e59b846184ef4cc2e86adffea6dfdf14b969401ce0beb153e8d05"
+  },
+  {
+   "name": "RMB_JS",
+   "file": "assets/cell3/js/rmb.js",
+   "sha256": "356bb4ba2899834098881776d07d886e6e44d4b98668c71ecdce61f4ea17f7df"
+  },
+  {
+   "name": "REFMOD_EACH_JS",
+   "file": "assets/cell3/js/refmod_each.js",
+   "sha256": "66a159b4658a18947de8696c20a8dcc183fe27a35b46da146b3bed262578f4de"
+  },
+  {
+   "name": "REFMOD_PICK_JS",
+   "file": "assets/cell3/js/refmod_pick.js",
+   "sha256": "c70935eb2b856eb90c86ba7b4a8abf8138e88001b590807b35330cc2faba7b3b"
+  },
+  {
+   "name": "RMM_MULTI_JS",
+   "file": "assets/cell3/js/rmm_multi.js",
+   "sha256": "c5923266fc5fb2fca2b42835761f2dc885f7e686b4556e91b0b1dbb91c9e220a"
+  },
+  {
+   "name": "PROMPT_TAG_JS",
+   "file": "assets/cell3/js/prompt_tag.js",
+   "sha256": "7880fa8511e1483df6b3beeb2ae84106a1a628eee4a658a44e1aeb84355beb03"
+  },
+  {
+   "name": "ZOOM_JS",
+   "file": "assets/cell3/js/zoom.js",
+   "sha256": "961e3cfb0dd51a171bca78000b7b9bf484cfe2c6aff98d67639239c226dc3127"
+  },
+  {
+   "name": "KF_JS",
+   "file": "assets/cell3/js/kf.js",
+   "sha256": "bfb4f3ecbd563b69c7d97f4148bd645fc270bb1ba310a121a08c22e7aec64963"
+  },
+  {
+   "name": "SORT_JS",
+   "file": "assets/cell3/js/sort.js",
+   "sha256": "07881c40f4ce6b185214d2051b1f0171e7b20a24f138cab273dcdd16cf219463"
+  },
+  {
+   "name": "FILL_JS",
+   "file": "assets/cell3/js/fill.js",
+   "sha256": "73509163fab939be34ccb39c4a82901642519007ccbac2d39ba218b769df5efe"
+  },
+  {
+   "name": "HELP_JS",
+   "file": "assets/cell3/js/help.js",
+   "sha256": "33be1b3f7498b58d9c70fabd183239072835de42767e6f113e6562a8f1e50a72"
+  },
+  {
+   "name": "LIB_NAV_JS",
+   "file": "assets/cell3/js/lib_nav.js",
+   "sha256": "82ddbdb927613748453fd36c43f0c81d9bb6d42b27f2a880df57d5ceb0682b6b"
+  }
+ ]
+}
