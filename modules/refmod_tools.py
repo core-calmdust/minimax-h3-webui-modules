@@ -18,7 +18,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_right")
 
@@ -84,6 +84,7 @@ I18N = {
     "説明に使える絵がありません（画像・動画の素材か、WebUI で保存した RefMod の見本が要ります）": {"en": "No pictures to describe (needs image/video sources, or a RefMod saved in the WebUI with previews)", "zh": "没有可用于描述的图片（需要图片/视频素材，或在 WebUI 中保存的带预览的 RefMod）", "ko": "설명에 쓸 그림이 없습니다 (이미지·영상 소재나 WebUI에서 저장한 RefMod의 견본이 필요합니다)"},
     "💾 説明を保存しました: {v0}": {"en": "💾 Description saved: {v0}", "zh": "💾 已保存描述：{v0}", "ko": "💾 설명을 저장했습니다: {v0}"},
     "ℹ️ <RefMod {v0}>（{v1}）には見た目の説明が無いので足しませんでした（FINDER で付けられます）": {"en": "ℹ️ <RefMod {v0}> ({v1}) has no appearance description, so nothing was added (you can add one in FINDER)", "zh": "ℹ️ <RefMod {v0}>（{v1}）没有外貌描述，因此未添加（可在 FINDER 中添加）", "ko": "ℹ️ <RefMod {v0}>({v1})에는 외모 설명이 없어 붙이지 않았습니다 (FINDER에서 붙일 수 있습니다)"},
+    "ℹ️ 見た目の説明の自動挿入: {v0} ／ 選択中の RefMod {v1} ／ 文末のラベル {v2}": {"en": "ℹ️ Auto appearance description: {v0} / selected RefMods {v1} / labels ending a sentence {v2}", "zh": "ℹ️ 自动添加外貌描述：{v0} ／ 已选 RefMod {v1} ／ 句末标签 {v2}", "ko": "ℹ️ 외모 설명 자동 삽입: {v0} / 선택한 RefMod {v1} / 문장 끝 라벨 {v2}"},
     "📝 <RefMod {v0}> に見た目の説明を足しました": {"en": "📝 Added the appearance description to <RefMod {v0}>", "zh": "📝 已为 <RefMod {v0}> 添加外貌描述", "ko": "📝 <RefMod {v0}>에 외모 설명을 붙였습니다"},
     "📝 見た目の説明を付けました（FINDER で直せます）: {v0}": {"en": "📝 Appearance description added (editable in FINDER): {v0}", "zh": "📝 已添加外貌描述（可在 FINDER 中修改）：{v0}", "ko": "📝 외모 설명을 붙였습니다 (FINDER에서 고칠 수 있습니다): {v0}"},
     "🗑 説明を消しました: {v0}": {"en": "🗑 Description removed: {v0}", "zh": "🗑 已删除描述：{v0}", "ko": "🗑 설명을 지웠습니다: {v0}"},
@@ -300,6 +301,13 @@ def hook_prompt(t, refs_by_kind=None):
     """プロンプトの展開（本体の `@` 記法の直後、`<RefMod N>` の展開の前）。→ (文, STATUS に出す ⚠️ の行)"""
     notes = []
     auto = bool(_ST["auto"])
+    # 1.0.3: 何を見て判断したかを 1 行ログに（自動挿入が効かないときの切り分け用。STATUS には出さない）
+    _bare = [int(m.group(2)) for m in _REFMOD_BARE_RE.finditer(t)]
+    if _bare or _PROMPT_TAG_RE.search(t):
+        sel0 = list(_g("_REFMOD").get("sel") or [])
+        _log(_T('ℹ️ 見た目の説明の自動挿入: {v0} ／ 選択中の RefMod {v1} ／ 文末のラベル {v2}',
+                v0=("ON" if auto else "OFF"), v1=(", ".join(f"{i}={nm}" for i, nm in enumerate(sel0, 1)) or "—"),
+                v2=(", ".join(f"<RefMod {n}>" for n in _bare) or "—")))
     if not (_PROMPT_TAG_RE.search(t) or (auto and _REFMOD_BARE_RE.search(t))):
         return t, notes
     sel = list(_g("_REFMOD").get("sel") or [])
@@ -433,7 +441,13 @@ def wire(ctx, comps):
         ui["auto_cb"].change(fn=_set_auto, inputs=[ui["auto_cb"]], outputs=None, queue=False, show_progress="hidden")
     if "ap" in ui and "rmm_sel" in comps:
         sel = comps["rmm_sel"]
-        sel.change(fn=_load, inputs=[sel], outputs=[ui["ap"], ui["of"]], queue=False, show_progress="hidden")
+        # 1.0.3: gr.State の .change は実機で飛ばなかった → 本体の選択イベント（rmm_pick_events）に .then でつなぐ
+        evs = list(comps.get("rmm_pick_events") or [])
+        if evs:
+            for ev in evs:
+                ev.then(fn=_load, inputs=[sel], outputs=[ui["ap"], ui["of"]], queue=False, show_progress="hidden")
+        else:
+            sel.change(fn=_load, inputs=[sel], outputs=[ui["ap"], ui["of"]], queue=False, show_progress="hidden")
         # ✍️ はテキストエンコーダ（GPU）を使うので、生成と同じキューに並べる
         ui["gen"].click(fn=_write, inputs=[sel], outputs=[ui["ap"], ui["of"], comps["rmm_msg"]],
                         show_progress="minimal", concurrency_id="generate")
