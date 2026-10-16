@@ -812,5 +812,13 @@
  "⚠️ 拡張モジュール {v0} を配線できませんでした: {v1}": "⚠️ Could not wire extension module {v0}: {v1}",
  "⚠️ 拡張モジュールのフックで失敗: {v0}": "⚠️ An extension module hook failed: {v0}",
  "⏳ 仕上げています…": "⏳ Finishing up…",
- "⚠️ Face Refiner（拡張モジュール face_refiner）を読み込めなかったので、顔補正は見送りました": "⚠️ The Face Refiner extension module (face_refiner) could not be loaded, so face refinement was skipped"
+ "⚠️ Face Refiner（拡張モジュール face_refiner）を読み込めなかったので、顔補正は見送りました": "⚠️ The Face Refiner extension module (face_refiner) could not be loaded, so face refinement was skipped",
+ "⚙️ モデルを準備しています": "⚙️ Preparing the model",
+ "📥 モデルを取得しています": "📥 Downloading the model",
+ "⚙️ モデルを GPU に載せています": "⚙️ Loading the model onto the GPU",
+ "🧩 下ごしらえ（エンコード）": "🧩 Preparing frames (encoding)",
+ "✨ 拡大しています": "✨ Upscaling",
+ "🎨 映像に戻しています（デコード）": "🎨 Converting back to video (decoding)",
+ "🎞️ 仕上げと書き出し": "🎞️ Finishing and writing",
+ "   内訳: 読み込み {v0} / エンコード {v1} / 拡大 {v2} / デコード {v3} / 書き出し {v4}": "   Breakdown: load {v0} / encode {v1} / upscale {v2} / decode {v3} / write {v4}"
 }
