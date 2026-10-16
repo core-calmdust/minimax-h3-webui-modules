@@ -821,5 +821,8 @@
  "🎨 映像に戻しています（デコード）": "🎨 Converting back to video (decoding)",
  "🎞️ 仕上げと書き出し": "🎞️ Finishing and writing",
  "   内訳: 読み込み {v0} / エンコード {v1} / 拡大 {v2} / デコード {v3} / 書き出し {v4}": "   Breakdown: load {v0} / encode {v1} / upscale {v2} / decode {v3} / write {v4}",
- "RefMod を選ぶと、ここに中身が出ます": "Select a RefMod to see its contents here"
+ "RefMod を選ぶと、ここに中身が出ます": "Select a RefMod to see its contents here",
+ "描き直しの強さ（Strength）": "Redraw strength (Strength)",
+ "   構図・人物の配置はそのまま、細部を H3 が目標解像度で描き直します（{v0} 歩。強さは下の「描き直しの強さ」）": "   Keeps the composition and the people's positions; H3 redraws the details at the target resolution ({v0} steps; strength is set by \"Redraw strength\" below)",
+ "🎚 描き直しの強さ {v0}（σ {v1}）": "🎚 Redraw strength {v0} (σ {v1})"
 }
