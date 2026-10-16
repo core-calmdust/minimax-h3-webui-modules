@@ -32,7 +32,7 @@
 #rmm-use-btn:hover, #rmm-apply-btn:hover, #rmm-import-btn:hover, #rmm-dl-btn:hover:not(:disabled) {
     background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
 }
-#rmm-right > #rmm-use-btn { margin-top: 2px !important; }
+#rmm-right > #rmm-use-btn { margin-top: 0 !important; }   /* 🆕 #335 左の一番上が STATUS になったので上端をそろえる */
 #rmm-dl-btn { margin-top: 10px !important; }
 #rmm-dl-btn:disabled { opacity: 0.45 !important; cursor: default !important; }
 #rmm-hint p { font-size: 12px !important; color: var(--h3-faint) !important; margin: 8px 0 !important; }
@@ -67,7 +67,7 @@
 #rmm-detail dt { color: var(--h3-faint); letter-spacing: 0.04em; }
 #rmm-detail dd { color: var(--h3-muted); margin: 0; word-break: break-all; }
 /* 🆕 #332 STATUS を検索と一覧の間へ（横長）。左＝中身、右＝見た目の説明（拡張モジュール）*/
-#rmm-status-panel { margin: 4px 0 10px 0 !important; min-height: 0 !important; }
+#rmm-status-panel { margin: 0 0 12px 0 !important; min-height: 0 !important; }
 #rmm-status-row { gap: 16px !important; align-items: flex-start !important; flex-wrap: wrap !important; }
 #rmm-status-row > #rmm-status-main { flex: 3 1 0% !important; min-width: 320px !important; gap: 0 !important; }
 #rmm-status-row > #rmm-status-side { flex: 2 1 0% !important; min-width: 240px !important; }
@@ -96,9 +96,22 @@
 #rmm-status-main { position: relative !important; }
 #rmm-status-top { position: absolute !important; top: 0 !important; right: 0 !important; z-index: 2 !important;
                   width: auto !important; margin: 0 !important; padding: 0 !important; background: none !important; }
-#rmm-status-top #rmm-dl-btn { margin: 0 !important; height: 28px !important; width: 34px !important; min-width: 34px !important;
-                              padding: 0 !important; font-size: 14px !important; letter-spacing: 0 !important; }
-#rmm-detail .rmm-d-name, #rmm-msg { padding-right: 44px !important; }
+/* 🆕 #335 ⬇ は動画の右上のダウンロード（Gradio のアイコンボタン）と同じ見た目: 小さな角丸の四角に下向きの矢印 */
+#rmm-status-top #rmm-dl-btn {
+    margin: 0 !important; height: 26px !important; width: 26px !important; min-width: 26px !important; padding: 0 !important;
+    border: 1px solid var(--h3-border) !important; border-radius: 4px !important; background: var(--h3-panel) !important;
+    color: var(--h3-muted) !important; font-size: 0 !important; line-height: 0 !important; box-shadow: none !important;
+    position: relative !important;
+}
+#rmm-status-top #rmm-dl-btn::before {
+    content: "" !important; position: absolute !important; inset: 0 !important; margin: auto !important;
+    width: 14px !important; height: 14px !important; background: currentColor !important;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M26 24v4H6v-4H4v4a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-4zm0-10l-1.41-1.41L17 20.17V2h-2v18.17l-7.59-7.58L6 14l10 10l10-10z'/%3E%3C/svg%3E") center / contain no-repeat !important;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M26 24v4H6v-4H4v4a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-4zm0-10l-1.41-1.41L17 20.17V2h-2v18.17l-7.59-7.58L6 14l10 10l10-10z'/%3E%3C/svg%3E") center / contain no-repeat !important;
+}
+#rmm-status-top #rmm-dl-btn:hover:not(:disabled) { color: var(--h3-text) !important; border-color: var(--h3-border-hover) !important; }
+#rmm-status-top #rmm-dl-btn:disabled { opacity: 0.45 !important; }
+#rmm-detail .rmm-d-name, #rmm-msg { padding-right: 36px !important; }
 /* STATUS と置き場所の行は中身の高さだけ（一覧が短いときに STATUS が下へ伸びて、スライダーが下がらないように）*/
 #rmm-panel > #rmm-status-panel, #rmm-panel > #rmm-head-row, #lora-panel > #lora-head-row {
     flex: 0 0 auto !important; height: auto !important;

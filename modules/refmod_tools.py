@@ -26,7 +26,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
@@ -235,7 +235,8 @@ CSS = """
     font-weight: 400 !important; padding: 6px 10px !important;
 }
 #rmm-ed-tabs button[role="tab"][aria-selected="true"] { color: var(--h3-accent) !important; }
-#rmm-ed-tabs .tabitem { padding: 6px 0 0 0 !important; border: 0 !important; background: none !important; }
+#rmm-ed-tabs .tabitem { padding: 6px 0 0 0 !important; border: 0 !important; background: none !important;
+                       min-height: var(--rmm-tab-h, 368px) !important; box-sizing: border-box !important; }
 /* 🆕 1.3.0 STATUS の上の素材・コマ（本体の素材の並びはこちらに置き換える）*/
 #rmm-detail .rmm-d-refs { display: none !important; }
 #rmm-detail .rmm-d-sec { margin: 10px -9px 0 -9px; padding: 8px; border: 1px dashed transparent; border-radius: 8px;
@@ -1172,6 +1173,15 @@ FRAME_JS = r"""() => {
     }
     setTimeout(() => { window.__h3RmmFrDragged = false; }, 0);
   }
+  // 🆕 1.4.1 タブを切り替えても編集欄の高さを変えない（「見た目・服」の高さに合わせる）
+  setInterval(() => {
+    const d = document.getElementById('rmm-ed-t-desc');
+    const tabs = document.getElementById('rmm-ed-tabs');
+    if (d && tabs && d.offsetParent) {
+      const h = Math.round(d.getBoundingClientRect().height);
+      if (h > 40 && tabs.dataset.h !== String(h)) { tabs.dataset.h = String(h); tabs.style.setProperty('--rmm-tab-h', h + 'px'); }
+    }
+  }, 700);
   document.addEventListener('pointerup', endDrag);
   document.addEventListener('pointercancel', endDrag);
   // ファイルのドロップ（コマの並びの上＝コマ、それ以外の STATUS の中身＝新しい素材）
@@ -1351,7 +1361,7 @@ def build_slot(ctx, slot):
                                     elem_id="refmod-auto-desc")
     elif slot == "rmm_status":                                     # 🆕 1.3.0 FINDER の STATUS の右: 編集をタブで切り替え
         with gr.Tabs(elem_id="rmm-ed-tabs"):
-            with gr.Tab("見た目・服", id="rmm-ed-t-desc"):
+            with gr.Tab("見た目・服", id="rmm-ed-t-desc", elem_id="rmm-ed-t-desc"):
                 ui["ap"] = gr.Textbox(label="見た目（髪・目・顔・目印）", lines=7, elem_id="rmm-desc-ap")
                 ui["of"] = gr.Textbox(label="服（@prompt で使う。自動では足さない）", lines=4, elem_id="rmm-desc-of")
                 with gr.Row(elem_id="rmm-desc-row"):
