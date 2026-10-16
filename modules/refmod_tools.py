@@ -18,6 +18,8 @@ WebUI 本体（セル3）がコミット固定で読み込み、`setup` → `bui
     クリックで選ぶ → 🗑 か枠の外へドラッグで消す、画像・動画・音声をドロップ（または ＋）で足す
     （Stack のコマの並びに画像を落とすとコマとして足す。それ以外は新しい素材）
   ・🆕 1.4.0（#334）: 素材・コマをドラッグで並べ替え。足すときは仮のコマ（読み込み中）と 0〜100% の進み具合を出す
+  ・🆕 1.5.0（#336）: コマが多い素材（数百コマ）向け。並びは 2 段までで中だけスクロール、絵は静的配信で見えている分だけ読む、
+    コマの絵は最初の 32 枚をすぐ・残りは裏で少しずつ作り、できたものから順に出る（JS が読み直す）
 メタ（本家 Luisacaotica/ComfyUI-MiniMaxH3Mod 互換）: `description`＝自然文、`concept_type`＝identity、
 分け書きは独自キー `h3webui_desc`＝{"appearance", "outfit"}。bundle は全体に置く。潜在には触らない。
 """
@@ -26,7 +28,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.4.1"
+VERSION = "1.5.0"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
@@ -251,7 +253,12 @@ CSS = """
                            font-size: 12px; line-height: 22px; cursor: pointer; }
 #rmm-detail .rmm-d-trash:hover:not(:disabled) { background: var(--h3-border); color: var(--h3-text); }
 #rmm-detail .rmm-d-trash:disabled { opacity: .35; cursor: default; }
-#rmm-detail .rmm-d-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+#rmm-detail .rmm-d-strip { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start;
+                           max-height: 118px; overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px;
+                           scrollbar-width: thin; scrollbar-color: var(--h3-border2) transparent; }
+#rmm-detail .rmm-d-sec[data-sec="m"] .rmm-d-strip { max-height: 150px; }   /* 素材は 72px × 2 段 */
+#rmm-detail img.rmm-wait:not([src]) { visibility: hidden; }
+#rmm-detail .rmm-it:has(img.rmm-wait) { background: var(--h3-elev); }
 #rmm-detail .rmm-it { position: relative; width: 56px; height: 56px; border-radius: 6px; overflow: hidden; cursor: pointer;
                       border: 1px solid var(--h3-border); background: var(--h3-bg); user-select: none; touch-action: none; }
 #rmm-detail .rmm-it.rmm-mem { width: 72px; height: 72px; }
@@ -969,8 +976,8 @@ def frames_missing(name):
             and not all(os.path.isfile(_fpath(name, i, t)) for t in range(int(z.shape[2])))]
 
 
-def frames_ensure(name):
-    """足りないコマの絵を作る。生成中・モデル未読み込みなら何もしない → 作った枚数"""
+def frames_ensure(name, limit=None):
+    """足りないコマの絵を作る（limit 枚まで。番号の若い順）。生成中・モデル未読み込みなら何もしない → 作った枚数"""
     import torch
     from PIL import Image
     todo = frames_missing(name) if name else []
@@ -996,7 +1003,7 @@ def frames_ensure(name):
                 p = _fpath(name, i, k)
                 if os.path.isfile(p):
                     continue
-                if _g("_BUSY").is_set():                          # 途中で生成が始まったらやめる（残りは次に選んだとき）
+                if _g("_BUSY").is_set() or (limit and made >= limit):   # 途中で生成が始まったら／決めた枚数でやめる（残りは次に）
                     return made
                 zk = z[:, :, k:k + 1].to(dev, torch.float32) * ls + lm
                 x = vae.decode(zk.to(dt), return_dict=False)[0].float()
@@ -1018,6 +1025,23 @@ def _furi(p):
         return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii")
 
 
+def _purl(p, exists=None):
+    """絵の URL。🆕 1.5.0 静的配信（本体が _thumbs を登録済み）なら /gradio_api/file=…（更新時刻つき）、ダメなら data URI"""
+    if exists is None:
+        exists = os.path.isfile(p)
+    rmp = _ST["ctx"].g.get("_RMP") or {}
+    if rmp.get("static"):
+        from urllib.parse import quote
+        u = "/gradio_api/file=" + quote(p, safe="/")
+        return u + (f"?v={int(os.path.getmtime(p))}" if exists else "")
+    return _furi(p) if exists else ""
+
+
+FRAME_FIRST = 32                          # 選んだときにすぐ作るコマの絵の枚数（残りは裏で FRAME_STEP ずつ）
+FRAME_STEP = 16
+_FR_LOCK = {"on": False}
+
+
 def hook_detail_html(name, items):
     """STATUS に足す HTML（🆕 1.3.0）: 素材の並び（本体の素材の並びの代わり）と、Stack の素材ごとのコマの並び。
     どちらも クリックで選ぶ → 🗑／枠の外へドラッグで消す、ファイルのドロップ／＋で足す（FRAME_JS）"""
@@ -1029,8 +1053,9 @@ def hook_detail_html(name, items):
     kname = {"image": _T("画像"), "video": _T("動画"), "audio": _T("音声")}
     tiles = []
     for i, (k, z) in enumerate(items or []):
-        uri = _g("_refmod_thumb_uri")(name, i) if k != "audio" else ""
-        pic = (f'<img src="{uri}" alt="" draggable="false">' if uri
+        _tp = _g("_refmod_thumb_path")(name, i)
+        uri = _purl(_tp, True) if (k != "audio" and os.path.isfile(_tp)) else ""
+        pic = (f'<img src="{uri}" alt="" loading="lazy" draggable="false">' if uri
                else f'<span class="rmm-it-icon">{_g("REFMOD_ICON").get(k, "🎞")}</span>')
         cap = f'{kname.get(k, k)} {_g("_rm_size")(k, z)}'
         tiles.append(f'<div class="rmm-it rmm-mem" data-i="{i}" title="{esc(cap)}">{pic}'
@@ -1046,7 +1071,12 @@ def hook_detail_html(name, items):
         fts = []
         for f in range(t):
             p = _fpath(name, i, f)
-            pic = f'<img src="{_furi(p)}" alt="" draggable="false">' if os.path.isfile(p) else '<span class="rmm-f-none"></span>'
+            if os.path.isfile(p):
+                pic = f'<img src="{_purl(p, True)}" alt="" loading="lazy" draggable="false">'
+            else:                                                 # まだ無い絵は JS ができるまで読み直す（静的配信のときだけ）
+                u = _purl(p, False)
+                pic = (f'<img class="rmm-wait" data-src="{u}" alt="" draggable="false">' if u
+                       else '<span class="rmm-f-none"></span>')
             fts.append(f'<div class="rmm-it rmm-fr" data-i="{f}">{pic}<span class="rmm-it-no">{f + 1}</span></div>')
         can_add = int(z.shape[3]) == int(z.shape[4])
         out.append(f'<div class="rmm-d-sec" data-sec="f" data-m="{i}"><div class="rmm-d-shead">'
@@ -1173,6 +1203,20 @@ FRAME_JS = r"""() => {
     }
     setTimeout(() => { window.__h3RmmFrDragged = false; }, 0);
   }
+  // 🆕 1.5.0 まだ無いコマの絵（裏で作っている）は、並びの中で見えているものだけ数秒おきに読み直す
+  setInterval(() => {
+    document.querySelectorAll(ROOT + ' img.rmm-wait').forEach((im) => {
+      const strip = im.closest('.rmm-d-strip'); if (!strip) { return; }
+      const r = im.getBoundingClientRect(), s = strip.getBoundingClientRect();
+      if (r.bottom < s.top - 60 || r.top > s.bottom + 60 || r.width === 0) { return; }
+      if (!im.dataset.hook) {
+        im.dataset.hook = '1';
+        im.addEventListener('load', () => { im.classList.remove('rmm-wait'); im.loading = 'lazy'; });
+        im.addEventListener('error', () => { im.removeAttribute('src'); });
+      }
+      im.src = im.dataset.src + (im.dataset.src.includes('?') ? '&' : '?') + 't=' + Date.now();
+    });
+  }, 2500);
   // 🆕 1.4.1 タブを切り替えても編集欄の高さを変えない（「見た目・服」の高さに合わせる）
   setInterval(() => {
     const d = document.getElementById('rmm-ed-t-desc');
@@ -1385,6 +1429,7 @@ def build_slot(ctx, slot):
         ui["fr_act"] = gr.Textbox(value="", show_label=False, container=False, elem_id="rmm-fr-act")
         ui["fr_target"] = gr.Textbox(value="", show_label=False, container=False, elem_id="rmm-fr-target")
         ui["fr_file"] = gr.File(file_count="multiple", show_label=False, elem_id="rmm-fr-file")
+        ui["fr_timer"] = gr.Timer(2.0)                             # 🆕 1.5.0 残りのコマの絵を裏で作る
 
 
 def _set_on_save_refs(v):
@@ -1458,11 +1503,30 @@ def _frames_job(name):
     """選んだあと・素材を足したあと: 足りないコマの絵を作って STATUS を描き直す（作るものが無ければ送らない）"""
     gr = _ST["ctx"].gr
     try:
-        if name and frames_ensure(name):
-            return gr.update(value=_g("rmm_detail_html")(name))
+        if name and not _FR_LOCK["on"]:
+            _FR_LOCK["on"] = True
+            try:
+                made = frames_ensure(name, FRAME_FIRST)
+            finally:
+                _FR_LOCK["on"] = False
+            if made:
+                return gr.update(value=_g("rmm_detail_html")(name))
     except Exception as e:                                        # noqa: BLE001
         _log(_T('コマの絵を作れませんでした: {v0}', v0=f'{e}'))
     return gr.update()
+
+
+def _frames_tick(name):
+    """🆕 1.5.0 残りのコマの絵を裏で FRAME_STEP 枚ずつ作る（gr.Timer。描き直しはしない＝JS ができた絵から読み直す）"""
+    if not name or _FR_LOCK["on"] or _g("_BUSY").is_set():
+        return
+    _FR_LOCK["on"] = True
+    try:
+        frames_ensure(name, FRAME_STEP)
+    except Exception as e:                                        # noqa: BLE001
+        _log(_T('コマの絵を作れませんでした: {v0}', v0=f'{e}'))
+    finally:
+        _FR_LOCK["on"] = False
 
 
 def _ed_run(fn, name, *args):
@@ -1578,6 +1642,8 @@ def wire(ctx, comps):
             _ev = ui["fr_file"].upload(fn=_fr_upload_ui, inputs=[sel, ui["fr_target"], ui["fr_file"]],
                                        outputs=outs + [ui["fr_file"]], **_up_kw)
         _chain(_ev)
+        # ⚠️ queue=False（本体の列は max_size=4。2 秒ごとの刻みを列に積むとほかの操作が「混雑」で断られる）
+        ui["fr_timer"].tick(fn=_frames_tick, inputs=[sel], outputs=None, queue=False, show_progress="hidden")
         demo = comps.get("demo")
         if demo is not None:
             demo.load(fn=None, js=FRAME_JS)
