@@ -15,7 +15,7 @@ on their own.
 
 | module | since | what it does |
 |---|---|---|
-| `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text; FINDER: description editor inside STATUS, edit box with tabs (sources: reorder / remove / add, remove Stack frames shown with numbered thumbnails in STATUS, one-step undo; type / tags) |
+| `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text; FINDER STATUS: tabs for appearance / outfit, sources (add from another RefMod, one-step undo) and type / tags; sources and Stack frames edited directly in STATUS (click to select, 🗑 or drag out to remove, drop images / videos / audio to add) |
 | `modules/face_refiner.py` | WebUI ver1.7 | Face Refiner: tracks faces (OpenCV Zoo YuNet), redraws the face clip with MiniMax H3 and pastes it back (CREATE option and UPSCALE ▸ Face Refiner). The UI stays in the core |
 
 ## Translations (`i18n/`)
@@ -88,6 +88,6 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 
 | モジュール | 内容 |
 |---|---|
-| `modules/refmod_tools.py` | RefMod の見た目の説明（保存時・FINDER でプロンプト補助が書く／`<Subject k> is @refmod N.` に自動で足す／`@prompt N` で全文）／FINDER: STATUS の中で説明を直す／編集の箱をタブで切り替え（素材の並べ替え・外す・足す、STATUS に番号つきで並ぶ Stack のコマを消す、直前の 1 回を元に戻す／種類・タグ） |
+| `modules/refmod_tools.py` | RefMod の見た目の説明（保存時・FINDER でプロンプト補助が書く／`<Subject k> is @refmod N.` に自動で足す／`@prompt N` で全文）／FINDER の STATUS: 見た目・服／素材（ほかの RefMod から足す・元に戻す）／種類・タグのタブ、素材と Stack のコマは STATUS の上で直接（クリックで選ぶ・🗑 か枠外へドラッグで消す・画像／動画／音声のドロップで足す） |
 | `modules/face_refiner.py` | Face Refiner（YuNet で顔を追跡 → H3 で顔のクリップを描き直して貼り戻す。CREATE の顔補正・UPSCALE ▸ Face Refiner。UI は本体） |
 - モデルの重みは置きません。非公式のコミュニティ製で、MiniMax とは関係ありません。

@@ -69,7 +69,7 @@
 /* 🆕 #332 STATUS を検索と一覧の間へ（横長）。左＝中身、右＝見た目の説明（拡張モジュール）*/
 #rmm-status-panel { margin: 4px 0 10px 0 !important; min-height: 0 !important; }
 #rmm-status-row { gap: 16px !important; align-items: flex-start !important; flex-wrap: wrap !important; }
-#rmm-status-row > #rmm-detail { flex: 3 1 0% !important; min-width: 320px !important; }
+#rmm-status-row > #rmm-status-main { flex: 3 1 0% !important; min-width: 320px !important; gap: 0 !important; }
 #rmm-status-row > #rmm-status-side { flex: 2 1 0% !important; min-width: 240px !important; }
 #rmm-status-side { border-left: 1px solid var(--h3-border) !important; padding-left: 16px !important; gap: 8px !important; }
 #rmm-detail .rmm-d-empty { font-size: 12px; color: var(--h3-faint); letter-spacing: 0.04em; padding: 6px 0; }
@@ -92,3 +92,24 @@
 }
 #rmm-icon input[type="range"] { accent-color: var(--h3-accent) !important; }
 #rmm-panel #rmm-gallery .grid-container { grid-template-columns: repeat(var(--rmm-cols, 5), 1fr) !important; }
+/* 🆕 #333 STATUS の見出しの行（STATUS ｜ ⬇ ダウンロード）。ダウンロードは見出しの右・編集欄の左 */
+#rmm-status-top { align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; margin-bottom: 6px !important; }
+#rmm-status-top > #rmm-status-label { flex: 1 1 auto !important; min-width: 0 !important; }
+#rmm-status-top #rmm-status-label p { margin: 0 !important; }
+#rmm-status-top #rmm-dl-btn { margin-top: 0 !important; height: 30px !important; width: auto !important; flex: 0 0 auto !important;
+                              padding: 0 14px !important; }
+/* STATUS と置き場所の行は中身の高さだけ（一覧が短いときに STATUS が下へ伸びて、スライダーが下がらないように）*/
+#rmm-panel > #rmm-status-panel, #rmm-panel > #rmm-head-row, #lora-panel > #lora-head-row {
+    flex: 0 0 auto !important; height: auto !important;
+}
+#rmm-status-row { align-items: stretch !important; }
+/* 🆕 #333 LORA タブも置き場所の右にアイコンの大きさ */
+#lora-head-row { align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; }
+#lora-head-row > #lora-head { flex: 1 1 auto !important; min-width: 0 !important; }
+#lora-head-row #lora-head p { margin: 0 0 8px 0 !important; }
+#lora-icon { flex: 0 0 160px !important; padding: 0 !important; background: none !important; border: 0 !important; }
+#lora-icon .head, #lora-icon input[type="number"], #lora-icon .reset-button, #lora-icon .min_value, #lora-icon .max_value {
+    display: none !important;
+}
+#lora-icon input[type="range"] { accent-color: var(--h3-accent) !important; }
+#lora-panel #lora-gallery .grid-container { grid-template-columns: repeat(var(--lora-cols, 5), 1fr) !important; }

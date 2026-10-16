@@ -14,6 +14,9 @@ WebUI 本体（セル3）がコミット固定で読み込み、`setup` → `bui
     並べ替え・外す・ほかの RefMod から足す、Stack 動画のコマを消す、直前の 1 回を元に戻す
   ・🆕 1.2.0（#332）: 見た目の説明は FINDER の STATUS の中で直す。編集は 1 つの箱にまとめてタブで切り替え。
     動画のコマを潜在から絵にして STATUS に番号つきで並べる（間引き・見本の差し替えは利用者判断で外した）
+  ・🆕 1.3.0（#333）: 編集はすべて STATUS の右のタブ（見た目・服／素材／種類・タグ）。素材・コマは STATUS の上で直接:
+    クリックで選ぶ → 🗑 か枠の外へドラッグで消す、画像・動画・音声をドロップ（または ＋）で足す
+    （Stack のコマの並びに画像を落とすとコマとして足す。それ以外は新しい素材）
 メタ（本家 Luisacaotica/ComfyUI-MiniMaxH3Mod 互換）: `description`＝自然文、`concept_type`＝identity、
 分け書きは独自キー `h3webui_desc`＝{"appearance", "outfit"}。bundle は全体に置く。潜在には触らない。
 """
@@ -22,9 +25,9 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
-SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status", "rmm_right")
+SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
 DESC_KEY = "h3webui_desc"
 DESC_IMG_MAX = 8                          # 説明を書かせるときに見せる絵の上限
@@ -100,12 +103,25 @@ I18N = {
     "✍️ 説明を生成": {"en": "✍️ Generate description", "zh": "✍️ 生成描述", "ko": "✍️ 설명 생성"},
     "💾 説明を保存": {"en": "💾 Save description", "zh": "💾 保存描述", "ko": "💾 설명 저장"},
     # 🆕 1.1.0 編集パネル（#331）
+    # 🆕 1.3.0（#333）
+    "＋ 素材 {v0} にコマを {v1} 枚足しました（{v2} → {v3}）": {"en": "＋ Added {v1} frame(s) to source {v0} ({v2} → {v3})", "zh": "＋ 已为素材 {v0} 添加 {v1} 帧（{v2} → {v3}）", "ko": "＋ 소재 {v0}에 프레임 {v1}장을 더했습니다 ({v2} → {v3})"},
+    "＋ 素材を {v0} 件足しました": {"en": "＋ Added {v0} source(s)", "zh": "＋ 已添加 {v0} 个素材", "ko": "＋ 소재 {v0}개를 더했습니다"},
+    "クリックで選択 → 🗑 か枠の外へドラッグで削除／ファイルをドロップで追加": {"en": "Click to select → 🗑 or drag out to remove / drop files to add", "zh": "点击选择 → 🗑 或拖到框外删除／拖入文件添加", "ko": "클릭으로 선택 → 🗑 또는 밖으로 끌어 삭제 / 파일을 끌어다 놓아 추가"},
+    "画像": {"en": "Image", "zh": "图片", "ko": "이미지"},
+    "動画": {"en": "Video", "zh": "视频", "ko": "동영상"},
+    "音声": {"en": "Audio", "zh": "音频", "ko": "음성"},
+    "❌ コマを足せるのは正方形の Stack の素材だけです（画像は新しい素材として足してください）": {"en": "❌ Frames can only be added to square Stack sources (add the image as a new source instead)", "zh": "❌ 只能向正方形的 Stack 素材添加帧（请把图片作为新素材添加）", "ko": "❌ 프레임은 정사각형 Stack 소재에만 더할 수 있습니다 (이미지는 새 소재로 더해 주세요)"},
+    "❌ pool 型の素材にはコマを足せません": {"en": "❌ Frames cannot be added to a pool-type source", "zh": "❌ 无法向 pool 型素材添加帧", "ko": "❌ pool 형 소재에는 프레임을 더할 수 없습니다"},
+    "❌ 足すコマの大きさが合いませんでした": {"en": "❌ The new frame's size did not match", "zh": "❌ 新帧的尺寸不一致", "ko": "❌ 더할 프레임의 크기가 맞지 않았습니다"},
+    "❌ 足す素材をエンコードできませんでした": {"en": "❌ Could not encode the sources to add", "zh": "❌ 无法编码要添加的素材", "ko": "❌ 더할 소재를 인코딩하지 못했습니다"},
+    "選んだものを消す": {"en": "Remove selected", "zh": "删除所选", "ko": "선택한 것 지우기"},
+    "ファイルを選んで足す": {"en": "Choose files to add", "zh": "选择文件添加", "ko": "파일을 골라 더하기"},
+    "素材（{v0}）": {"en": "Sources ({v0})", "zh": "素材（{v0}）", "ko": "소재 ({v0})"},
+    "見た目・服": {"en": "Appearance & outfit", "zh": "外貌与服装", "ko": "외모·의상"},
+    "素材やコマは左の STATUS の上で直せます（クリックで選ぶ → 🗑 か枠の外へドラッグで消す／画像・動画・音声をドロップするか ＋ で足す。Stack のコマの並びに画像を落とすとコマになります）。中身（潜在）を書き換えるので、直前の 1 回だけ元に戻せます。": {"en": "Sources and frames can be edited directly in STATUS on the left (click to select → 🗑 or drag out to remove / drop images, videos or audio, or use ＋, to add; images dropped on a Stack's frame row become frames). This rewrites the contents (latents), so only the last edit can be undone.", "zh": "素材和帧可在左侧 STATUS 中直接修改（点击选择 → 🗑 或拖到框外删除／拖入图片、视频、音频或用 ＋ 添加；把图片拖到 Stack 的帧列上会成为帧）。这会改写内容（潜变量），只能撤销上一次编辑。", "ko": "소재와 프레임은 왼쪽 STATUS에서 바로 고칠 수 있습니다 (클릭으로 선택 → 🗑 또는 밖으로 끌어 삭제 / 이미지·동영상·음성을 끌어다 놓거나 ＋로 추가. Stack 프레임 줄에 이미지를 놓으면 프레임이 됩니다). 내용(잠재)을 다시 쓰므로 직전 1회만 되돌릴 수 있습니다."},
     # 🆕 1.2.0（#332）
     "素材 {v0} のコマ（{v1}）": {"en": "Source {v0} frames ({v1})", "zh": "素材 {v0} 的帧（{v1}）", "ko": "소재 {v0}의 프레임 ({v1})"},
     "コマの絵を作れませんでした: {v0}": {"en": "Could not make the frame pictures: {v0}", "zh": "无法生成帧图像：{v0}", "ko": "프레임 그림을 만들지 못했습니다: {v0}"},
-    "RefMod を編集": {"en": "Edit RefMod", "zh": "编辑 RefMod", "ko": "RefMod 편집"},
-    "素材・コマの編集は RefMod の中身（潜在）を書き換えます。直前の 1 回だけ元に戻せます。": {"en": "Editing sources and frames rewrites the RefMod's contents (latents). Only the last edit can be undone.", "zh": "编辑素材和帧会改写 RefMod 的内容（潜变量）。只能撤销上一次编辑。", "ko": "소재·프레임 편집은 RefMod의 내용(잠재)을 다시 씁니다. 직전 1회만 되돌릴 수 있습니다."},
-    "消すコマ（番号は STATUS のコマ）": {"en": "Frames to remove (numbers match the frames in STATUS)", "zh": "要删除的帧（编号与 STATUS 中的帧对应）", "ko": "지울 프레임 (번호는 STATUS의 프레임)"},
     "💾 種類・タグを保存しました: {v0}": {"en": "💾 Type and tags saved: {v0}", "zh": "💾 已保存类型和标签：{v0}", "ko": "💾 종류·태그를 저장했습니다: {v0}"},
     "✂ 素材 {v0} のコマ: {v1} → {v2}": {"en": "✂ Source {v0} frames: {v1} → {v2}", "zh": "✂ 素材 {v0} 的帧：{v1} → {v2}", "ko": "✂ 소재 {v0}의 프레임: {v1} → {v2}"},
     "↕ 素材 {v0} を {v1} 番目へ動かしました": {"en": "↕ Moved source {v0} to position {v1}", "zh": "↕ 已将素材 {v0} 移到第 {v1} 位", "ko": "↕ 소재 {v0}을(를) {v1}번째로 옮겼습니다"},
@@ -121,9 +137,6 @@ I18N = {
     "❌ 1 コマは残してください": {"en": "❌ Keep at least one frame", "zh": "❌ 请至少保留 1 帧", "ko": "❌ 1프레임은 남겨 주세요"},
     "❌ 消すコマを選んでください": {"en": "❌ Select the frames to remove", "zh": "❌ 请选择要删除的帧", "ko": "❌ 지울 프레임을 선택해 주세요"},
     "変更はありません": {"en": "No changes", "zh": "没有更改", "ko": "변경 사항이 없습니다"},
-    "{v0} 音声 {v1}": {"en": "{v0} Audio {v1}", "zh": "{v0} 音频 {v1}", "ko": "{v0} 음성 {v1}"},
-    "{v0} 動画 {v1} コマ・{v2}": {"en": "{v0} Video {v1} frames · {v2}", "zh": "{v0} 视频 {v1} 帧 · {v2}", "ko": "{v0} 동영상 {v1}프레임 · {v2}"},
-    "{v0} 画像 {v1}": {"en": "{v0} Image {v1}", "zh": "{v0} 图片 {v1}", "ko": "{v0} 이미지 {v1}"},
     "指定なし（generic）": {"en": "Unspecified (generic)", "zh": "未指定（generic）", "ko": "지정 없음 (generic)"},
     "人物・キャラクター（identity）": {"en": "Person / character (identity)", "zh": "人物・角色（identity）", "ko": "인물·캐릭터 (identity)"},
     "ポーズ・動き（pose_motion）": {"en": "Pose / motion (pose_motion)", "zh": "姿势・动作（pose_motion）", "ko": "포즈·동작 (pose_motion)"},
@@ -147,10 +160,6 @@ I18N = {
     "ほかの RefMod の素材を足す": {"en": "Add sources from another RefMod", "zh": "添加其他 RefMod 的素材", "ko": "다른 RefMod의 소재 더하기"},
     "＋ 足す": {"en": "＋ Add", "zh": "＋ 添加", "ko": "＋ 더하기"},
     "↩ 直前の編集を元に戻す": {"en": "↩ Undo the last edit", "zh": "↩ 撤销上一次编辑", "ko": "↩ 직전 편집 되돌리기"},
-    "↑ 前へ": {"en": "↑ Up", "zh": "↑ 向前", "ko": "↑ 앞으로"},
-    "↓ 後へ": {"en": "↓ Down", "zh": "↓ 向后", "ko": "↓ 뒤로"},
-    "✕ 外す": {"en": "✕ Remove", "zh": "✕ 移除", "ko": "✕ 빼기"},
-    "✂ 選んだコマを消す": {"en": "✂ Remove selected frames", "zh": "✂ 删除所选帧", "ko": "✂ 선택한 프레임 지우기"},
 }
 
 # 字・ボタンは本体の CSS 変数（--h3-*）に合わせる。チェックの字は同じ箱の見出し・本体の RefMod 保存のチェックと同じ 12px・muted（#325）、
@@ -219,16 +228,46 @@ CSS = """
 }
 #rmm-ed-tabs button[role="tab"][aria-selected="true"] { color: var(--h3-accent) !important; }
 #rmm-ed-tabs .tabitem { padding: 6px 0 0 0 !important; border: 0 !important; background: none !important; }
-/* STATUS のコマの並び（番号は「消すコマ」の番号と同じ）*/
-#rmm-detail .rmm-d-frames { margin-top: 10px; }
-#rmm-detail .rmm-d-fhead { font-size: 11px; color: var(--h3-faint); letter-spacing: 0.06em; margin-bottom: 4px; }
-#rmm-detail .rmm-d-fstrip { display: flex; flex-wrap: wrap; gap: 4px; }
-#rmm-detail .rmm-f { position: relative; width: 56px; height: 56px; border-radius: 4px; overflow: hidden;
-                     border: 1px solid var(--h3-border); background: var(--h3-bg); }
-#rmm-detail .rmm-f img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 🆕 1.3.0 STATUS の上の素材・コマ（本体の素材の並びはこちらに置き換える）*/
+#rmm-detail .rmm-d-refs { display: none !important; }
+#rmm-detail .rmm-d-sec { margin: 10px -9px 0 -9px; padding: 8px; border: 1px dashed transparent; border-radius: 8px;
+                         transition: border-color .12s, background .12s; }
+#rmm-detail .rmm-d-sec.over { border-color: var(--h3-accent); background: var(--h3-elev); }
+#rmm-detail .rmm-d-shead { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; min-height: 24px; }
+#rmm-detail .rmm-d-stitle { font-size: 11px; color: var(--h3-faint); letter-spacing: 0.06em; white-space: nowrap; flex: 0 0 auto; }
+#rmm-detail .rmm-d-hint { font-size: 10px; color: var(--h3-faint); letter-spacing: 0.04em; opacity: .8; flex: 1 1 auto;
+                          min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rmm-detail .rmm-d-trash { margin-left: auto; height: 24px; min-width: 32px; padding: 0 8px; border-radius: 6px;
+                           border: 1px solid var(--h3-border2); background: var(--h3-elev); color: var(--h3-muted);
+                           font-size: 12px; line-height: 22px; cursor: pointer; }
+#rmm-detail .rmm-d-trash:hover:not(:disabled) { background: var(--h3-border); color: var(--h3-text); }
+#rmm-detail .rmm-d-trash:disabled { opacity: .35; cursor: default; }
+#rmm-detail .rmm-d-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+#rmm-detail .rmm-it { position: relative; width: 56px; height: 56px; border-radius: 6px; overflow: hidden; cursor: pointer;
+                      border: 1px solid var(--h3-border); background: var(--h3-bg); user-select: none; touch-action: none; }
+#rmm-detail .rmm-it.rmm-mem { width: 72px; height: 72px; }
+#rmm-detail .rmm-it img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+#rmm-detail .rmm-it-icon { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 22px; }
 #rmm-detail .rmm-f-none { display: block; width: 100%; height: 100%; }
-#rmm-detail .rmm-f-no { position: absolute; left: 3px; top: 2px; font-size: 10px; line-height: 1.2; padding: 0 4px;
-                        border-radius: 3px; color: #fff; background: rgba(0, 0, 0, 0.55); font-variant-numeric: tabular-nums; }
+#rmm-detail .rmm-it-no { position: absolute; left: 3px; top: 2px; font-size: 10px; line-height: 1.2; padding: 0 4px;
+                         border-radius: 3px; color: #fff; background: rgba(0, 0, 0, 0.55); font-variant-numeric: tabular-nums; }
+#rmm-detail .rmm-it-cap { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; line-height: 1.5; padding: 0 3px;
+                          color: #fff; background: rgba(0, 0, 0, 0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rmm-detail .rmm-it.sel { outline: 2px solid var(--h3-accent); outline-offset: -2px; border-color: var(--h3-accent); }
+#rmm-detail .rmm-it.dragging { opacity: .45; }
+#rmm-detail .rmm-it.out, #rmm-detail .rmm-it.gone { opacity: .15; }
+#rmm-detail .rmm-add { display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--h3-faint);
+                       border-style: dashed; background: none; }
+#rmm-detail .rmm-add:hover { color: var(--h3-accent); border-color: var(--h3-accent); }
+.rmm-ghost { position: fixed !important; z-index: 9999; width: 56px; height: 56px; border-radius: 6px; overflow: hidden;
+             pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .3); border: 1px solid var(--h3-border); }
+.rmm-ghost img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rmm-ghost .rmm-it-cap { display: none; }
+.rmm-ghost.out { opacity: .4; outline: 2px solid #d9534f; }
+#rmm-fr-act, #rmm-fr-target, #rmm-fr-file { display: none !important; }
+/* 見た目と服の箱の間は、ほかの欄どうしと同じくらい空ける */
+#rmm-desc-of { margin-top: 12px !important; }
+#rmm-desc-row { margin-top: 4px !important; }
 """
 
 
@@ -717,6 +756,122 @@ def frames_drop(name, i, drop):
     return _T('✂ 素材 {v0} のコマ: {v1} → {v2}', v0=f'{int(i) + 1}', v1=f'{r[0]}', v2=f'{r[1]}')
 
 
+# ---- 🆕 1.3.0 素材・コマを足す（どちらも本体のエンコード＝生成と同じ手順を借りる。GPU を使う）
+_IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+_AUD_EXT = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac", ".opus")
+
+
+def _kind_of(p):
+    e = os.path.splitext(str(p))[1].lower()
+    return "image" if e in _IMG_EXT else ("audio" if e in _AUD_EXT else "video")
+
+
+def _enc_ready():
+    if _g("_BUSY").is_set():
+        raise RuntimeError(_T('⏳ 生成中は使えません。終わってからもう一度押してください'))
+    ok, msg = _g("ensure_mode_ui")("Ref2VA")                      # 参照のエンコードは R2V の手順で
+    if not ok:
+        raise RuntimeError(str(msg))
+    return int(_g("calc_frames")(_g("MIN_DURATION")))
+
+
+def frames_add(name, i, paths):
+    """Stack の素材 i の後ろに画像をコマとして足す（保存のときと同じく正方形へ余白でそろえてから 1 枚ずつ VAE）"""
+    import math
+    import torch
+    from PIL import Image
+    hdr, key, top, mems = _need(name, i)
+    i = int(i)
+    m, z = mems[i]
+    if z.dim() != 5 or int(z.shape[3]) != int(z.shape[4]):
+        raise RuntimeError(_T('❌ コマを足せるのは正方形の Stack の素材だけです（画像は新しい素材として足してください）'))
+    if str(m.get("mode") or "") == "training":
+        raise RuntimeError(_T('❌ pool 型の素材にはコマを足せません'))
+    edge = int(z.shape[3]) * 16
+    tmpd = os.path.join(_g("REFMOD_STACK_DIR"), "_add")
+    os.makedirs(tmpd, exist_ok=True)
+    ups = []
+    for j, p in enumerate(paths):                                 # 小さい絵は先に拡大（そろえる処理は素材より大きくしないため）
+        with Image.open(p) as im:
+            im = im.convert("RGB")
+            if min(im.size) < edge:
+                k = edge / float(min(im.size))
+                im = im.resize((math.ceil(im.width * k), math.ceil(im.height * k)), Image.LANCZOS)
+            q = os.path.join(tmpd, f"up_{j}.png")
+            im.save(q)
+            ups.append(q)
+    sq, _e = _g("_refmod_stack_prepare")(ups, f"e{edge}")
+    nf = _enc_ready()
+    rb = {k: [] for k in _g("REF_KINDS")}
+    rb["image"] = list(sq)
+    res = _g("refmod_encode_refs")(rb, nf, short_edge=edge)
+    zs = [zz for k, zz in res if k == "image"]
+    if len(zs) != len(sq) or any(tuple(zz.shape[3:]) != tuple(z.shape[3:]) for zz in zs):
+        raise RuntimeError(_T('❌ 足すコマの大きさが合いませんでした'))
+    _backup(name)
+    t0 = int(z.shape[2])
+    mems[i] = (m, torch.cat([z] + [zz.to(z.dtype) for zz in zs], dim=2).contiguous())
+    _write_raw(name, hdr, key, top, mems)
+    os.makedirs(_td(), exist_ok=True)
+    for j, q in enumerate(sq):                                    # コマの絵は揃えた絵から（VAE で戻すより正確）
+        with Image.open(q) as im:
+            im = im.convert("RGB")
+            im.thumbnail((FRAME_SIDE, FRAME_SIDE), Image.LANCZOS)
+            im.save(_fpath(name, i, t0 + j), quality=85)
+    return _T('＋ 素材 {v0} にコマを {v1} 枚足しました（{v2} → {v3}）', v0=f'{i + 1}', v1=f'{len(zs)}',
+              v2=f'{t0}', v3=f'{t0 + len(zs)}')
+
+
+def members_add(name, paths):
+    """画像・動画・音声を新しい素材として後ろに足す。大きさは今の映像の素材の短辺にそろえる（無ければ保存の既定）"""
+    hdr, key, top, mems = _need(name)
+    rb = {k: [] for k in _g("REF_KINDS")}
+    for p in paths:
+        rb[_kind_of(p)].append(p)
+    short = [min(int(zz.shape[3]), int(zz.shape[4])) * 16 for _m, zz in mems if zz.dim() == 5]
+    size = (f"e{max(256, max(short) // 32 * 32)}" if short
+            else str(_ST["ctx"].g.get("REFMOD_SIZE_DEFAULT", "e768")))
+    nf = _enc_ready()
+    items, _pool = _g("refmod_encode_sized")(rb, nf, size)
+    if not items:
+        raise RuntimeError(_T('❌ 足す素材をエンコードできませんでした'))
+    if len(mems) + len(items) > 256:
+        raise RuntimeError(_T('❌ 素材が 256 件を超えます'))
+    _backup(name)
+    n0 = len(mems)
+    leaf = name.split("/")[-1]
+    add = []
+    for k, (kind, z) in enumerate(items):
+        add.append(({"name": f"{leaf}_{n0 + k + 1}", "kind": kind, "mode": "encode", "source": "h3-webui",
+                     "source_shape": "", "pool": "" if kind == "audio" else "full-res", "optimize_steps": 0,
+                     "tags": [], "description": "", "concept_type": "voice" if kind == "audio" else "generic",
+                     "_format_version": 4, "sample_rate": 32000}, z))
+    _write_raw(name, hdr, key, top, mems + add)
+    srcs = [p for kk in ("image", "video", "audio") for p in rb[kk]]   # エンコードの並び（画像→動画→音声）
+    for k, p in enumerate(srcs):
+        if _kind_of(p) != "audio":
+            try:
+                _g("_refmod_save_one")(p, name, n0 + k)                 # 一覧の絵・プロンプト補助の見本（本体と同じ作り）
+            except Exception:                                     # noqa: BLE001
+                pass
+    return _T('＋ 素材を {v0} 件足しました', v0=f'{len(add)}')
+
+
+def members_remove(name, idxs):
+    """素材をまとめて外す（最後の 1 件は残す）"""
+    hdr, key, top, mems = _need(name)
+    gone = sorted({int(x) for x in idxs if 0 <= int(x) < len(mems)})
+    if not gone:
+        raise RuntimeError(_T('❌ 素材を選んでください'))
+    if len(gone) >= len(mems):
+        raise RuntimeError(_T('❌ 最後の 1 件は外せません（RefMod ごと消すときは「🗑 選択中の RefMod を削除」）'))
+    _backup(name)
+    order = [k for k in range(len(mems)) if k not in gone]
+    _write_raw(name, hdr, key, top, [mems[k] for k in order])
+    _pics_reorder(name, order)
+    return _T('✕ 素材 {v0} を外しました', v0=", ".join(str(k + 1) for k in gone))
+
+
 # ---- 🆕 1.2.0 動画のコマを絵にする（STATUS にコマ番と並べる）。潜在を VAE で 1 コマずつ戻して小さな絵で控える。
 #      Stack（画像を束ねた動画）は 1 コマ＝1 枚の画像なので、そのまま元の絵に近いものが出る。
 #      ふつうの動画の素材は時間方向に圧縮されているため、2 コマ目以降はぼやけた目安になる
@@ -784,22 +939,192 @@ def _furi(p):
 
 
 def hook_detail_html(name, items):
-    """STATUS に足す HTML: 動画の素材ごとにコマを番号つきで並べる（絵が無いコマは番号だけ）"""
+    """STATUS に足す HTML（🆕 1.3.0）: 素材の並び（本体の素材の並びの代わり）と、Stack の素材ごとのコマの並び。
+    どちらも クリックで選ぶ → 🗑／枠の外へドラッグで消す、ファイルのドロップ／＋で足す（FRAME_JS）"""
     import html as _html
-    out = []
+    esc = _html.escape
+    hint = esc(_T('クリックで選択 → 🗑 か枠の外へドラッグで削除／ファイルをドロップで追加'))
+    trash = f'<button type="button" class="rmm-d-trash" disabled title="{esc(_T("選んだものを消す"))}">🗑</button>'
+    add_t = f'<div class="rmm-it rmm-add" title="{esc(_T("ファイルを選んで足す"))}">＋</div>'
+    kname = {"image": _T("画像"), "video": _T("動画"), "audio": _T("音声")}
+    tiles = []
+    for i, (k, z) in enumerate(items or []):
+        uri = _g("_refmod_thumb_uri")(name, i) if k != "audio" else ""
+        pic = (f'<img src="{uri}" alt="" draggable="false">' if uri
+               else f'<span class="rmm-it-icon">{_g("REFMOD_ICON").get(k, "🎞")}</span>')
+        cap = f'{kname.get(k, k)} {_g("_rm_size")(k, z)}'
+        tiles.append(f'<div class="rmm-it rmm-mem" data-i="{i}" title="{esc(cap)}">{pic}'
+                     f'<span class="rmm-it-no">{i + 1}</span><span class="rmm-it-cap">{esc(cap)}</span></div>')
+    out = [f'<div class="rmm-d-sec" data-sec="m" data-m=""><div class="rmm-d-shead">'
+           f'<span class="rmm-d-stitle">{esc(_T("素材（{v0}）", v0=f"{len(items or [])}"))}</span>'
+           f'<span class="rmm-d-hint">{hint}</span>{trash}</div>'
+           f'<div class="rmm-d-strip">{"".join(tiles)}{add_t}</div></div>']
     for i, (k, z) in enumerate(items or []):
         if k == "audio" or z.dim() != 5 or int(z.shape[2]) <= 1:
             continue
         t = int(z.shape[2])
-        tiles = []
+        fts = []
         for f in range(t):
             p = _fpath(name, i, f)
             pic = f'<img src="{_furi(p)}" alt="" draggable="false">' if os.path.isfile(p) else '<span class="rmm-f-none"></span>'
-            tiles.append(f'<div class="rmm-f">{pic}<span class="rmm-f-no">{f + 1}</span></div>')
-        head = _html.escape(_T('素材 {v0} のコマ（{v1}）', v0=f'{i + 1}', v1=f'{t}'))
-        out.append(f'<div class="rmm-d-frames"><div class="rmm-d-fhead">{head}</div>'
-                   f'<div class="rmm-d-fstrip">{"".join(tiles)}</div></div>')
+            fts.append(f'<div class="rmm-it rmm-fr" data-i="{f}">{pic}<span class="rmm-it-no">{f + 1}</span></div>')
+        can_add = int(z.shape[3]) == int(z.shape[4])
+        out.append(f'<div class="rmm-d-sec" data-sec="f" data-m="{i}"><div class="rmm-d-shead">'
+                   f'<span class="rmm-d-stitle">{esc(_T("素材 {v0} のコマ（{v1}）", v0=f"{i + 1}", v1=f"{t}"))}</span>'
+                   f'{trash}</div><div class="rmm-d-strip">{"".join(fts)}{add_t if can_add else ""}</div></div>')
     return "".join(out)
+
+
+# ---- 🆕 1.3.0 STATUS の上の操作（JS → 隠し欄）。🔴 隠し欄は visible=False だと JS から触れないので CSS で隠す
+FRAME_JS = r"""() => {
+  if (window.__h3RmmFr) { return; }
+  window.__h3RmmFr = true;
+  const ROOT = '#rmm-detail';
+  function send(v) {
+    const box = document.querySelector('#rmm-fr-act textarea, #rmm-fr-act input');
+    if (!box) { return; }
+    window.__h3RmmFrSeq = (window.__h3RmmFrSeq || 0) + 1;
+    box.value = v + '|' + window.__h3RmmFrSeq;
+    box.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+  function target(sec) {
+    return (sec && sec.dataset.sec === 'f') ? ('f|' + sec.dataset.m) : 'm|';
+  }
+  function upload(files, sec) {
+    if (!files || !files.length) { return; }
+    const t = document.querySelector('#rmm-fr-target textarea, #rmm-fr-target input');
+    const inp = document.querySelector('#rmm-fr-file input[type=file]');
+    if (!t || !inp) { return; }
+    window.__h3RmmFrSeq = (window.__h3RmmFrSeq || 0) + 1;
+    t.value = target(sec) + '|' + window.__h3RmmFrSeq;
+    t.dispatchEvent(new Event('input', {bubbles: true}));
+    const dt = new DataTransfer();
+    for (const f of files) { dt.items.add(f); }
+    setTimeout(() => { inp.files = dt.files; inp.dispatchEvent(new Event('change', {bubbles: true})); }, 60);
+  }
+  function selIds(sec) {
+    return [...sec.querySelectorAll('.rmm-it.sel:not(.rmm-add)')].map(e => e.dataset.i);
+  }
+  function refresh(sec) {
+    const b = sec.querySelector('.rmm-d-trash');
+    if (b) { b.disabled = !selIds(sec).length; }
+  }
+  function del(sec, ids) {
+    if (!ids.length) { return; }
+    sec.querySelectorAll('.rmm-it').forEach(e => { if (ids.includes(e.dataset.i) && !e.classList.contains('rmm-add')) { e.classList.add('gone'); } });
+    send('del|' + sec.dataset.sec + '|' + sec.dataset.m + '|' + ids.join(','));
+  }
+  document.addEventListener('click', (e) => {
+    const t = e.target; if (!t || !t.closest || !t.closest(ROOT)) { return; }
+    const sec = t.closest('.rmm-d-sec'); if (!sec) { return; }
+    if (t.closest('.rmm-d-trash')) { e.preventDefault(); del(sec, selIds(sec)); return; }
+    const add = t.closest('.rmm-add');
+    if (add) {
+      e.preventDefault();
+      const fi = document.createElement('input'); fi.type = 'file'; fi.multiple = true;
+      fi.accept = sec.dataset.sec === 'f' ? 'image/*' : 'image/*,video/*,audio/*';
+      fi.onchange = () => upload(fi.files, sec); fi.click(); return;
+    }
+    const it = t.closest('.rmm-it');
+    if (it && !window.__h3RmmFrDragged) { it.classList.toggle('sel'); refresh(sec); }
+  });
+  // 枠の外へドラッグで消す（キーフレームと同じ: 外に出ると薄くなり、離すと消える）
+  let drag = null;
+  document.addEventListener('pointerdown', (e) => {
+    const it = e.target && e.target.closest && e.target.closest(ROOT + ' .rmm-it:not(.rmm-add)');
+    if (!it || e.button !== 0) { return; }
+    drag = {it: it, sec: it.closest('.rmm-d-sec'), x0: e.clientX, y0: e.clientY, moved: false, out: false, ghost: null};
+    window.__h3RmmFrDragged = false;
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!drag) { return; }
+    if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) { return; }
+    if (!drag.moved) {
+      drag.moved = true; window.__h3RmmFrDragged = true;
+      const g = drag.it.cloneNode(true); g.classList.add('rmm-ghost'); document.body.appendChild(g); drag.ghost = g;
+      drag.it.classList.add('dragging');
+    }
+    drag.ghost.style.left = (e.clientX - 28) + 'px'; drag.ghost.style.top = (e.clientY - 28) + 'px';
+    const r = drag.sec.querySelector('.rmm-d-strip').getBoundingClientRect();
+    const out = e.clientX < r.left - 24 || e.clientX > r.right + 24 || e.clientY < r.top - 24 || e.clientY > r.bottom + 24;
+    if (out !== drag.out) { drag.out = out; drag.ghost.classList.toggle('out', out); drag.it.classList.toggle('out', out); }
+  });
+  function endDrag() {
+    if (!drag) { return; }
+    const d = drag; drag = null;
+    if (d.ghost) { d.ghost.remove(); }
+    d.it.classList.remove('dragging', 'out');
+    if (d.moved && d.out) {
+      const ids = d.it.classList.contains('sel') ? selIds(d.sec) : [d.it.dataset.i];
+      del(d.sec, ids);
+    }
+    setTimeout(() => { window.__h3RmmFrDragged = false; }, 0);
+  }
+  document.addEventListener('pointerup', endDrag);
+  document.addEventListener('pointercancel', endDrag);
+  // ファイルのドロップ（コマの並びの上＝コマ、それ以外の STATUS の中身＝新しい素材）
+  function hasFiles(e) { return e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files'); }
+  document.addEventListener('dragover', (e) => {
+    const root = e.target && e.target.closest && e.target.closest(ROOT);
+    document.querySelectorAll(ROOT + ' .rmm-d-sec.over').forEach(n => n.classList.remove('over'));
+    if (!root || !hasFiles(e)) { return; }
+    e.preventDefault();
+    const sec = e.target.closest('.rmm-d-sec') || root.querySelector('.rmm-d-sec[data-sec="m"]');
+    if (sec) { sec.classList.add('over'); }
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (e.target && e.target.closest && !e.target.closest(ROOT)) {
+      document.querySelectorAll(ROOT + ' .rmm-d-sec.over').forEach(n => n.classList.remove('over'));
+    }
+  });
+  document.addEventListener('drop', (e) => {
+    const root = e.target && e.target.closest && e.target.closest(ROOT);
+    if (!root || !hasFiles(e)) { return; }
+    e.preventDefault();
+    document.querySelectorAll(ROOT + ' .rmm-d-sec.over').forEach(n => n.classList.remove('over'));
+    const sec = e.target.closest('.rmm-d-sec') || root.querySelector('.rmm-d-sec[data-sec="m"]');
+    upload(e.dataTransfer.files, sec);
+  });
+}"""
+
+
+def _fr_target(v):
+    p = str(v or "").split("|")
+    return (p[0], p[1] if len(p) > 1 else "")
+
+
+def fr_delete(name, payload):
+    """JS からの 'del|f|<素材>|<コマ,…>|連番' / 'del|m||<素材,…>|連番'"""
+    p = str(payload or "").split("|")
+    if len(p) < 4 or p[0] != "del":
+        return None
+    ids = [int(x) for x in p[3].split(",") if x.strip().lstrip("-").isdigit()]
+    if p[1] == "f":
+        i = int(p[2])
+        t = int(_read_raw(name)[3][i][1].shape[2])
+        return frames_drop(name, i, [k + 1 for k in ids if 0 <= k < t])
+    return members_remove(name, ids)
+
+
+def fr_upload(name, target, files):
+    """ドロップ・＋で入ったファイル。コマの並び（f|i）なら画像はコマ、動画・音声は新しい素材"""
+    paths = [f if isinstance(f, str) else getattr(f, "name", None) for f in (files or [])]
+    paths = [p for p in paths if p and os.path.isfile(p)]
+    if not name:
+        raise RuntimeError(_T('❌ RefMod を 1 件選んでください'))
+    if not paths:
+        return None
+    kind, m = _fr_target(target)
+    msgs = []
+    imgs = [p for p in paths if _kind_of(p) == "image"]
+    rest = [p for p in paths if _kind_of(p) != "image"]
+    if kind == "f" and m.isdigit() and imgs:
+        msgs.append(frames_add(name, int(m), imgs))
+        if rest:
+            msgs.append(members_add(name, rest))
+    else:
+        msgs.append(members_add(name, paths))
+    return "\n\n".join(msgs)
 
 
 # ---------------------------------------------------------------- 本体のフック
@@ -904,39 +1229,32 @@ def build_slot(ctx, slot):
     elif slot == "refmod_bar2":                                    # CREATE ▸ RefMod: 検索〜Strength の箱の 2 段目
         ui["auto_cb"] = gr.Checkbox(value=AUTO_DESC_DEFAULT, label="見た目の説明を自動で足す",
                                     elem_id="refmod-auto-desc")
-    elif slot == "rmm_status":                                     # 🆕 1.2.0 FINDER の STATUS の右: 見た目の説明を直す
-        ui["ap"] = gr.Textbox(label="見た目（髪・目・顔・目印）", lines=3, elem_id="rmm-desc-ap")
-        ui["of"] = gr.Textbox(label="服（@prompt で使う。自動では足さない）", lines=2, elem_id="rmm-desc-of")
-        with gr.Row(elem_id="rmm-desc-row"):
-            ui["gen"] = gr.Button("✍️ 説明を生成", min_width=60, elem_id="rmm-desc-gen-btn", elem_classes=["rmm-ed-btn"])
-            ui["save"] = gr.Button("💾 説明を保存", min_width=60, elem_id="rmm-desc-save-btn", elem_classes=["rmm-ed-btn"])
-    elif slot == "rmm_right":                                      # FINDER の右列: 編集（1 つの箱をタブで切り替え）
-        with gr.Accordion("RefMod を編集", open=False, elem_classes=["panel-acc"], elem_id="rmm-ed-acc"):
-            with gr.Tabs(elem_id="rmm-ed-tabs"):
-                with gr.Tab("素材", id="rmm-ed-t-mem"):
-                    ui["mem"] = gr.Dropdown(choices=[], value=None, label="素材", elem_id="rmm-ed-mem",
-                                            elem_classes=["rmm-ed-dd"])
-                    with gr.Row(elem_id="rmm-ed-row"):
-                        ui["up"] = gr.Button("↑ 前へ", min_width=40, elem_id="rmm-ed-up", elem_classes=["rmm-ed-btn"])
-                        ui["down"] = gr.Button("↓ 後へ", min_width=40, elem_id="rmm-ed-down", elem_classes=["rmm-ed-btn"])
-                        ui["rm"] = gr.Button("✕ 外す", min_width=40, elem_id="rmm-ed-rm", elem_classes=["rmm-ed-btn"])
-                    with gr.Column(visible=False, elem_id="rmm-ed-frames") as ui["fr_box"]:
-                        ui["fr_drop"] = gr.CheckboxGroup(choices=[], value=[], label="消すコマ（番号は STATUS のコマ）",
-                                                         elem_id="rmm-ed-frdrop")
-                        ui["fr_drop_btn"] = gr.Button("✂ 選んだコマを消す", elem_id="rmm-ed-frdrop-btn",
-                                                      elem_classes=["rmm-ed-btn"])
-                    ui["add"] = gr.Dropdown(choices=[], value=None, filterable=True, label="ほかの RefMod の素材を足す",
-                                            elem_id="rmm-ed-add", elem_classes=["rmm-ed-dd"])
-                    ui["add_btn"] = gr.Button("＋ 足す", elem_id="rmm-ed-add-btn", elem_classes=["rmm-ed-btn"])
-                    ui["undo_btn"] = gr.Button("↩ 直前の編集を元に戻す", interactive=False, elem_id="rmm-ed-undo-btn",
-                                               elem_classes=["rmm-ed-btn"])
-                    gr.Markdown("素材・コマの編集は RefMod の中身（潜在）を書き換えます。直前の 1 回だけ元に戻せます。",
-                                elem_id="rmm-ed-hint")
-                with gr.Tab("種類・タグ", id="rmm-ed-t-meta"):
-                    ui["ct"] = gr.Dropdown(choices=[(_ctype_label(v), v) for v in CONCEPT_TYPES], value="generic",
-                                           label="種類（concept_type）", elem_id="rmm-ed-ct", elem_classes=["rmm-ed-dd"])
-                    ui["tags"] = gr.Textbox(label="タグ（カンマ区切り）", elem_id="rmm-ed-tags")
-                    ui["meta_btn"] = gr.Button("💾 種類・タグを保存", elem_id="rmm-ed-meta-btn", elem_classes=["rmm-ed-btn"])
+    elif slot == "rmm_status":                                     # 🆕 1.3.0 FINDER の STATUS の右: 編集をタブで切り替え
+        with gr.Tabs(elem_id="rmm-ed-tabs"):
+            with gr.Tab("見た目・服", id="rmm-ed-t-desc"):
+                ui["ap"] = gr.Textbox(label="見た目（髪・目・顔・目印）", lines=7, elem_id="rmm-desc-ap")
+                ui["of"] = gr.Textbox(label="服（@prompt で使う。自動では足さない）", lines=4, elem_id="rmm-desc-of")
+                with gr.Row(elem_id="rmm-desc-row"):
+                    ui["gen"] = gr.Button("✍️ 説明を生成", min_width=60, elem_id="rmm-desc-gen-btn", elem_classes=["rmm-ed-btn"])
+                    ui["save"] = gr.Button("💾 説明を保存", min_width=60, elem_id="rmm-desc-save-btn", elem_classes=["rmm-ed-btn"])
+            with gr.Tab("素材", id="rmm-ed-t-mem"):
+                ui["add"] = gr.Dropdown(choices=[], value=None, filterable=True, label="ほかの RefMod の素材を足す",
+                                        elem_id="rmm-ed-add", elem_classes=["rmm-ed-dd"])
+                ui["add_btn"] = gr.Button("＋ 足す", elem_id="rmm-ed-add-btn", elem_classes=["rmm-ed-btn"])
+                ui["undo_btn"] = gr.Button("↩ 直前の編集を元に戻す", interactive=False, elem_id="rmm-ed-undo-btn",
+                                           elem_classes=["rmm-ed-btn"])
+                gr.Markdown("素材やコマは左の STATUS の上で直せます（クリックで選ぶ → 🗑 か枠の外へドラッグで消す／"
+                            "画像・動画・音声をドロップするか ＋ で足す。Stack のコマの並びに画像を落とすとコマになります）。"
+                            "中身（潜在）を書き換えるので、直前の 1 回だけ元に戻せます。", elem_id="rmm-ed-hint")
+            with gr.Tab("種類・タグ", id="rmm-ed-t-meta"):
+                ui["ct"] = gr.Dropdown(choices=[(_ctype_label(v), v) for v in CONCEPT_TYPES], value="generic",
+                                       label="種類（concept_type）", elem_id="rmm-ed-ct", elem_classes=["rmm-ed-dd"])
+                ui["tags"] = gr.Textbox(label="タグ（カンマ区切り）", elem_id="rmm-ed-tags")
+                ui["meta_btn"] = gr.Button("💾 種類・タグを保存", elem_id="rmm-ed-meta-btn", elem_classes=["rmm-ed-btn"])
+        # STATUS の上の操作の受け渡し口（CSS で隠す）
+        ui["fr_act"] = gr.Textbox(value="", show_label=False, container=False, elem_id="rmm-fr-act")
+        ui["fr_target"] = gr.Textbox(value="", show_label=False, container=False, elem_id="rmm-fr-target")
+        ui["fr_file"] = gr.File(file_count="multiple", show_label=False, elem_id="rmm-fr-file")
 
 
 def _set_on_save_refs(v):
@@ -987,52 +1305,23 @@ def _save(name, appearance, outfit):
 
 
 # ---- 🆕 1.1.0 編集パネルの配線用
-def _mem_choices(items):
-    out = []
-    for i, (k, z) in enumerate(items):
-        if k == "audio":
-            sz = _g("_rm_size")(k, z)
-            lab = _T('{v0} 音声 {v1}', v0=f'{i + 1}', v1=sz)
-        elif int(z.shape[2]) > 1:
-            lab = _T('{v0} 動画 {v1} コマ・{v2}', v0=f'{i + 1}', v1=f'{int(z.shape[2])}', v2=_g("_rm_size")(k, z))
-        else:
-            lab = _T('{v0} 画像 {v1}', v0=f'{i + 1}', v1=_g("_rm_size")(k, z))
-        out.append((lab, i))
-    return out
-
-
-def _ed_view(name, idx=None):
-    """編集パネルの中身 (種類, タグ, 素材, コマの箱, 消すコマ, 足す候補, 元に戻す)"""
+def _ed_view(name):
+    """編集欄の中身 (種類, タグ, 足す候補, 元に戻す)"""
     gr = _ST["ctx"].gr
     others = [n for n in _g("refmod_choices")() if n != name]
     if not name:
-        return (gr.update(value="generic"), gr.update(value=""), gr.update(choices=[], value=None),
-                gr.update(visible=False), gr.update(choices=[], value=[]),
-                gr.update(choices=others, value=None), gr.update(interactive=False))
+        return (gr.update(value="generic"), gr.update(value=""), gr.update(choices=others, value=None),
+                gr.update(interactive=False))
     try:
-        ct, tags, items = meta_info(name)
+        ct, tags, _items = meta_info(name)
     except Exception:                                             # noqa: BLE001
-        ct, tags, items = "generic", "", []
-    ch = _mem_choices(items)
-    idx = idx if (idx is not None and 0 <= int(idx) < len(items)) else (0 if items else None)
-    fr, drop = gr.update(visible=False), gr.update(choices=[], value=[])
-    if idx is not None:
-        k, z = items[int(idx)]
-        if k != "audio" and int(z.shape[2]) > 1:
-            fr = gr.update(visible=True)
-            drop = gr.update(choices=[str(x) for x in range(1, int(z.shape[2]) + 1)], value=[])
+        ct, tags = "generic", ""
     return (gr.update(value=ct if ct in CONCEPT_TYPES else "generic"), gr.update(value=tags),
-            gr.update(choices=ch, value=idx), fr, drop, gr.update(choices=others, value=None),
-            gr.update(interactive=has_backup(name)))
+            gr.update(choices=others, value=None), gr.update(interactive=has_backup(name)))
 
 
 def _ed_load(name):
     return _ed_view(name)
-
-
-def _ed_pick(name, idx):
-    v = _ed_view(name, idx)
-    return v[3], v[4]
 
 
 def _frames_job(name):
@@ -1047,55 +1336,41 @@ def _frames_job(name):
 
 
 def _ed_run(fn, name, *args):
-    """操作を走らせて (STATUS の文, 詳細の HTML, 編集パネルの中身…) を返す"""
-    idx = args[0] if args else None
+    """操作を走らせて (STATUS の文, 詳細の HTML, 編集欄の中身…) を返す"""
     try:
-        r = fn(name, *args)
-        if isinstance(r, tuple):
-            msg, idx = r
-        else:
-            msg = r
+        if not name:
+            raise RuntimeError(_T('❌ RefMod を 1 件選んでください'))
+        msg = fn(name, *args)
         if msg is None:
             msg = _T('変更はありません')
     except Exception as e:                                        # noqa: BLE001
         msg = f"{e}" if str(e).startswith(("❌", "⏳")) else _T('❌ 編集できませんでした: {v0}', v0=f'{e}')
     detail = _g("rmm_detail_html")(name) if name else ""
-    return (msg, detail) + tuple(_ed_view(name, idx if isinstance(idx, int) else None))
+    return (msg, detail) + tuple(_ed_view(name))
 
 
 def _ed_meta(name, ct, tags):
-    if not name:
-        return (_T('❌ RefMod を 1 件選んでください'), "") + tuple(_ed_view(None))
     return _ed_run(lambda n: set_meta(n, ct, tags), name)
 
 
-def _ed_up(name, i):
-    return _ed_run(lambda n, j: mem_move(n, j, -1), name, i)
-
-
-def _ed_down(name, i):
-    return _ed_run(lambda n, j: mem_move(n, j, 1), name, i)
-
-
-def _ed_rm(name, i):
-    return _ed_run(mem_remove, name, i)
-
-
 def _ed_add(name, other):
-    return _ed_run(lambda n: mem_add(n, other), name)
-
-
-def _ed_frdrop(name, i, drop):
-    return _ed_run(lambda n, j: (frames_drop(n, j, drop), j), name, i)
+    return _ed_run(lambda n: mem_add(n, other)[0], name)
 
 
 def _ed_undo(name):
     def _u(n):
-        if not n:
-            raise RuntimeError(_T('❌ RefMod を 1 件選んでください'))
         undo(n)
         return _T('↩ 直前の編集を元に戻しました: {v0}', v0=n)
     return _ed_run(_u, name)
+
+
+def _fr_act(name, payload):
+    return _ed_run(lambda n: fr_delete(n, payload), name)
+
+
+def _fr_upload(name, target, files):
+    gr = _ST["ctx"].gr
+    return _ed_run(lambda n: fr_upload(n, target, files), name) + (gr.update(value=None),)
 
 
 def wire(ctx, comps):
@@ -1124,15 +1399,13 @@ def wire(ctx, comps):
     if "ct" in ui and "rmm_sel" in comps:
         sel = comps["rmm_sel"]
         det = comps["rmm_detail"]
-        ed_out = [ui["ct"], ui["tags"], ui["mem"], ui["fr_box"], ui["fr_drop"], ui["add"], ui["undo_btn"]]
+        ed_out = [ui["ct"], ui["tags"], ui["add"], ui["undo_btn"]]
         evs = list(comps.get("rmm_pick_events") or [])
         for ev in evs or []:
             ev.then(fn=_ed_load, inputs=[sel], outputs=ed_out, queue=False, show_progress="hidden").then(
                 fn=_frames_job, inputs=[sel], outputs=[det], show_progress="hidden")
         if not evs:
             sel.change(fn=_ed_load, inputs=[sel], outputs=ed_out, queue=False, show_progress="hidden")
-        ui["mem"].input(fn=_ed_pick, inputs=[sel, ui["mem"]], outputs=[ui["fr_box"], ui["fr_drop"]],
-                        queue=False, show_progress="hidden")
         outs = [comps["rmm_msg"], det] + ed_out
         # 潜在を書き換えたあとは FINDER の一覧（絵・参照の数）と CREATE の選択欄も描き直す（本体の関数を借りる）
         ref_in, ref_out = comps.get("rmm_refresh_in"), comps.get("rmm_refresh_out")
@@ -1147,8 +1420,13 @@ def wire(ctx, comps):
             return ev
         ui["meta_btn"].click(fn=_ed_meta, inputs=[sel, ui["ct"], ui["tags"]], outputs=outs,
                              queue=False, show_progress="hidden")
-        for btn, fn, extra in ((ui["up"], _ed_up, [ui["mem"]]), (ui["down"], _ed_down, [ui["mem"]]),
-                               (ui["rm"], _ed_rm, [ui["mem"]]), (ui["add_btn"], _ed_add, [ui["add"]]),
-                               (ui["fr_drop_btn"], _ed_frdrop, [ui["mem"], ui["fr_drop"]]),
-                               (ui["undo_btn"], _ed_undo, [])):
-            _chain(btn.click(fn=fn, inputs=[sel] + extra, outputs=outs, show_progress="minimal"))
+        _chain(ui["add_btn"].click(fn=_ed_add, inputs=[sel, ui["add"]], outputs=outs, show_progress="minimal"))
+        _chain(ui["undo_btn"].click(fn=_ed_undo, inputs=[sel], outputs=outs, show_progress="minimal"))
+        # STATUS の上の操作（JS → 隠し欄は必ず .change＝本体 #257 と同じ。.input は飛ばない）。
+        # 足すのはエンコード（GPU）なので生成と同じ列に並べる
+        _chain(ui["fr_act"].change(fn=_fr_act, inputs=[sel, ui["fr_act"]], outputs=outs, show_progress="minimal"))
+        _chain(ui["fr_file"].upload(fn=_fr_upload, inputs=[sel, ui["fr_target"], ui["fr_file"]],
+                                    outputs=outs + [ui["fr_file"]], show_progress="minimal", concurrency_id="generate"))
+        demo = comps.get("demo")
+        if demo is not None:
+            demo.load(fn=None, js=FRAME_JS)
