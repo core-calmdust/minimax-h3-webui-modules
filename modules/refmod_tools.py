@@ -18,7 +18,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_right")
 
@@ -98,13 +98,13 @@ I18N = {
     "💾 説明を保存": {"en": "💾 Save description", "zh": "💾 保存描述", "ko": "💾 설명 저장"},
 }
 
-# 字・ボタンは本体の CSS 変数（--h3-*）に合わせる。チェックの字は本体の他のチェックと同じ 13px・text3、
+# 字・ボタンは本体の CSS 変数（--h3-*）に合わせる。チェックの字は同じ箱の見出し・本体の RefMod 保存のチェックと同じ 12px・muted（#325）、
 # FINDER のボタンは「CREATE で使う」「変更する」と同じ見た目
 CSS = """
 /* ---- 拡張モジュール refmod_tools ---- */
 #refmod-desc-cb label span, #refmod-desc-cb span, #rmb-desc label span, #rmb-desc span,
 #refmod-auto-desc label span, #refmod-auto-desc span {
-    font-size: 13px !important; color: var(--h3-text3) !important;
+    font-size: 12px !important; color: var(--h3-muted) !important;
     letter-spacing: 0.04em !important; font-weight: 400 !important; line-height: 1.5 !important;
 }
 #refmod-desc-cb input[type="checkbox"], #rmb-desc input[type="checkbox"], #refmod-auto-desc input[type="checkbox"] {
