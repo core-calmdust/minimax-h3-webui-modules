@@ -15,7 +15,7 @@ on their own.
 
 | module | since | what it does |
 |---|---|---|
-| `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text |
+| `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text; FINDER edit panel (type / tags, reorder / remove / add sources, remove or thin Stack frames, replace previews, one-step undo) |
 | `modules/face_refiner.py` | WebUI ver1.7 | Face Refiner: tracks faces (OpenCV Zoo YuNet), redraws the face clip with MiniMax H3 and pastes it back (CREATE option and UPSCALE ▸ Face Refiner). The UI stays in the core |
 
 ## Translations (`i18n/`)
@@ -88,6 +88,6 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 
 | モジュール | 内容 |
 |---|---|
-| `modules/refmod_tools.py` | RefMod の見た目の説明（保存時・FINDER でプロンプト補助が書く／`<Subject k> is @refmod N.` に自動で足す／`@prompt N` で全文） |
+| `modules/refmod_tools.py` | RefMod の見た目の説明（保存時・FINDER でプロンプト補助が書く／`<Subject k> is @refmod N.` に自動で足す／`@prompt N` で全文）／FINDER の編集パネル（種類・タグ、素材の並べ替え・外す・足す、Stack のコマを消す・間引く、見本の差し替え、直前の 1 回を元に戻す） |
 | `modules/face_refiner.py` | Face Refiner（YuNet で顔を追跡 → H3 で顔のクリップを描き直して貼り戻す。CREATE の顔補正・UPSCALE ▸ Face Refiner。UI は本体） |
 - モデルの重みは置きません。非公式のコミュニティ製で、MiniMax とは関係ありません。
