@@ -11,7 +11,9 @@ WebUI 本体（セル3）がコミット固定で読み込み、`setup` → `bui
   ・`<Prompt N>`（`@prompt N`）を見た目＋服の全文に置き換える
   ・FINDER で説明を生成・手直し・保存する
   ・🆕 1.1.0 FINDER の編集パネル（#331）: 種類（concept_type）・タグの書き換え、素材（bundle の members）の
-    並べ替え・外す・ほかの RefMod から足す、Stack 動画のコマを消す・等間隔に間引く、見本の差し替え、直前の 1 回を元に戻す
+    並べ替え・外す・ほかの RefMod から足す、Stack 動画のコマを消す、直前の 1 回を元に戻す
+  ・🆕 1.2.0（#332）: 見た目の説明は FINDER の STATUS の中で直す。編集は 1 つの箱にまとめてタブで切り替え。
+    動画のコマを潜在から絵にして STATUS に番号つきで並べる（間引き・見本の差し替えは利用者判断で外した）
 メタ（本家 Luisacaotica/ComfyUI-MiniMaxH3Mod 互換）: `description`＝自然文、`concept_type`＝identity、
 分け書きは独自キー `h3webui_desc`＝{"appearance", "outfit"}。bundle は全体に置く。潜在には触らない。
 """
@@ -20,9 +22,9 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
-SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_right")
+SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status", "rmm_right")
 
 DESC_KEY = "h3webui_desc"
 DESC_IMG_MAX = 8                          # 説明を書かせるときに見せる絵の上限
@@ -81,8 +83,6 @@ I18N = {
     "❌ RefMod を 1 件選んでください": {"en": "❌ Select one RefMod", "zh": "❌ 请选择 1 个 RefMod", "ko": "❌ RefMod를 1개 선택해 주세요"},
     "❌ 説明を保存できませんでした: {v0}": {"en": "❌ Could not save the description: {v0}", "zh": "❌ 无法保存描述：{v0}", "ko": "❌ 설명을 저장하지 못했습니다: {v0}"},
     "プロンプト補助が有効ではありません（セル2 の TE_LLM_ENABLE を ON にして読み直してください）": {"en": "Prompt Assist is not enabled (turn on TE_LLM_ENABLE in Cell 2 and reload)", "zh": "提示词助手未启用（请在单元格 2 中开启 TE_LLM_ENABLE 并重新加载）", "ko": "프롬프트 보조가 활성화되어 있지 않습니다 (셀 2의 TE_LLM_ENABLE을 켜고 다시 불러오세요)"},
-    "服": {"en": "Outfit", "zh": "服装", "ko": "의상"},
-    "見た目": {"en": "Appearance", "zh": "外貌", "ko": "외모"},
     "説明に使える絵がありません（画像・動画の素材か、WebUI で保存した RefMod の見本が要ります）": {"en": "No pictures to describe (needs image/video sources, or a RefMod saved in the WebUI with previews)", "zh": "没有可用于描述的图片（需要图片/视频素材，或在 WebUI 中保存的带预览的 RefMod）", "ko": "설명에 쓸 그림이 없습니다 (이미지·영상 소재나 WebUI에서 저장한 RefMod의 견본이 필요합니다)"},
     "💾 説明を保存しました: {v0}": {"en": "💾 Description saved: {v0}", "zh": "💾 已保存描述：{v0}", "ko": "💾 설명을 저장했습니다: {v0}"},
     "ℹ️ <RefMod {v0}>（{v1}）には見た目の説明が無いので足しませんでした（FINDER で付けられます）": {"en": "ℹ️ <RefMod {v0}> ({v1}) has no appearance description, so nothing was added (you can add one in FINDER)", "zh": "ℹ️ <RefMod {v0}>（{v1}）没有外貌描述，因此未添加（可在 FINDER 中添加）", "ko": "ℹ️ <RefMod {v0}>({v1})에는 외모 설명이 없어 붙이지 않았습니다 (FINDER에서 붙일 수 있습니다)"},
@@ -94,16 +94,20 @@ I18N = {
     "⏳ 生成中は使えません。終わってからもう一度押してください": {"en": "⏳ Not available while generating. Press again when it finishes", "zh": "⏳ 生成过程中无法使用。完成后请再按一次", "ko": "⏳ 생성 중에는 쓸 수 없습니다. 끝난 뒤 다시 눌러 주세요"},
     "❌ 書けませんでした: {v0}": {"en": "❌ Could not write it: {v0}", "zh": "❌ 无法撰写：{v0}", "ko": "❌ 쓰지 못했습니다: {v0}"},
     "服（@prompt で使う。自動では足さない）": {"en": "Outfit (used by @prompt; not added automatically)", "zh": "服装（用于 @prompt，不会自动添加）", "ko": "의상 (@prompt에서 사용. 자동으로는 붙이지 않음)"},
-    "見た目の説明": {"en": "Appearance description", "zh": "外貌描述", "ko": "외모 설명"},
     "見た目の説明も作る": {"en": "Also write an appearance description", "zh": "同时生成外貌描述", "ko": "외모 설명도 만들기"},
     "見た目の説明を自動で足す": {"en": "Add the appearance description automatically", "zh": "自动添加外貌描述", "ko": "외모 설명을 자동으로 붙이기"},
     "見た目（髪・目・顔・目印）": {"en": "Appearance (hair, eyes, face, marks)", "zh": "外貌（头发、眼睛、脸、特征）", "ko": "외모 (머리·눈·얼굴·특징)"},
     "✍️ 説明を生成": {"en": "✍️ Generate description", "zh": "✍️ 生成描述", "ko": "✍️ 설명 생성"},
     "💾 説明を保存": {"en": "💾 Save description", "zh": "💾 保存描述", "ko": "💾 설명 저장"},
     # 🆕 1.1.0 編集パネル（#331）
+    # 🆕 1.2.0（#332）
+    "素材 {v0} のコマ（{v1}）": {"en": "Source {v0} frames ({v1})", "zh": "素材 {v0} 的帧（{v1}）", "ko": "소재 {v0}의 프레임 ({v1})"},
+    "コマの絵を作れませんでした: {v0}": {"en": "Could not make the frame pictures: {v0}", "zh": "无法生成帧图像：{v0}", "ko": "프레임 그림을 만들지 못했습니다: {v0}"},
+    "RefMod を編集": {"en": "Edit RefMod", "zh": "编辑 RefMod", "ko": "RefMod 편집"},
+    "素材・コマの編集は RefMod の中身（潜在）を書き換えます。直前の 1 回だけ元に戻せます。": {"en": "Editing sources and frames rewrites the RefMod's contents (latents). Only the last edit can be undone.", "zh": "编辑素材和帧会改写 RefMod 的内容（潜变量）。只能撤销上一次编辑。", "ko": "소재·프레임 편집은 RefMod의 내용(잠재)을 다시 씁니다. 직전 1회만 되돌릴 수 있습니다."},
+    "消すコマ（番号は STATUS のコマ）": {"en": "Frames to remove (numbers match the frames in STATUS)", "zh": "要删除的帧（编号与 STATUS 中的帧对应）", "ko": "지울 프레임 (번호는 STATUS의 프레임)"},
     "💾 種類・タグを保存しました: {v0}": {"en": "💾 Type and tags saved: {v0}", "zh": "💾 已保存类型和标签：{v0}", "ko": "💾 종류·태그를 저장했습니다: {v0}"},
     "✂ 素材 {v0} のコマ: {v1} → {v2}": {"en": "✂ Source {v0} frames: {v1} → {v2}", "zh": "✂ 素材 {v0} 的帧：{v1} → {v2}", "ko": "✂ 소재 {v0}의 프레임: {v1} → {v2}"},
-    "🖼 素材 {v0} の見本を差し替えました": {"en": "🖼 Replaced the preview of source {v0}", "zh": "🖼 已替换素材 {v0} 的预览图", "ko": "🖼 소재 {v0}의 견본을 바꿨습니다"},
     "↕ 素材 {v0} を {v1} 番目へ動かしました": {"en": "↕ Moved source {v0} to position {v1}", "zh": "↕ 已将素材 {v0} 移到第 {v1} 位", "ko": "↕ 소재 {v0}을(를) {v1}번째로 옮겼습니다"},
     "✕ 素材 {v0} を外しました": {"en": "✕ Removed source {v0}", "zh": "✕ 已移除素材 {v0}", "ko": "✕ 소재 {v0}을(를) 뺐습니다"},
     "＋ {v0} の素材 {v1} 件を足しました": {"en": "＋ Added {v1} source(s) from {v0}", "zh": "＋ 已添加 {v0} 的 {v1} 个素材", "ko": "＋ {v0}의 소재 {v1}개를 더했습니다"},
@@ -117,8 +121,6 @@ I18N = {
     "❌ 1 コマは残してください": {"en": "❌ Keep at least one frame", "zh": "❌ 请至少保留 1 帧", "ko": "❌ 1프레임은 남겨 주세요"},
     "❌ 消すコマを選んでください": {"en": "❌ Select the frames to remove", "zh": "❌ 请选择要删除的帧", "ko": "❌ 지울 프레임을 선택해 주세요"},
     "変更はありません": {"en": "No changes", "zh": "没有更改", "ko": "변경 사항이 없습니다"},
-    "❌ 音声の素材には見本がありません": {"en": "❌ Audio sources have no preview", "zh": "❌ 音频素材没有预览图", "ko": "❌ 음성 소재에는 견본이 없습니다"},
-    "❌ 見本にする画像を入れてください": {"en": "❌ Add an image to use as the preview", "zh": "❌ 请放入用作预览的图片", "ko": "❌ 견본으로 쓸 이미지를 넣어 주세요"},
     "{v0} 音声 {v1}": {"en": "{v0} Audio {v1}", "zh": "{v0} 音频 {v1}", "ko": "{v0} 음성 {v1}"},
     "{v0} 動画 {v1} コマ・{v2}": {"en": "{v0} Video {v1} frames · {v2}", "zh": "{v0} 视频 {v1} 帧 · {v2}", "ko": "{v0} 동영상 {v1}프레임 · {v2}"},
     "{v0} 画像 {v1}": {"en": "{v0} Image {v1}", "zh": "{v0} 图片 {v1}", "ko": "{v0} 이미지 {v1}"},
@@ -141,21 +143,14 @@ I18N = {
     "種類（concept_type）": {"en": "Type (concept_type)", "zh": "类型（concept_type）", "ko": "종류 (concept_type)"},
     "タグ（カンマ区切り）": {"en": "Tags (comma-separated)", "zh": "标签（逗号分隔）", "ko": "태그 (쉼표로 구분)"},
     "💾 種類・タグを保存": {"en": "💾 Save type and tags", "zh": "💾 保存类型和标签", "ko": "💾 종류·태그 저장"},
-    "素材を編集": {"en": "Edit sources", "zh": "编辑素材", "ko": "소재 편집"},
     "素材": {"en": "Source", "zh": "素材", "ko": "소재"},
-    "見本の画像（一覧とプロンプト補助に使う絵）": {"en": "Preview image (used in the list and by Prompt Assist)", "zh": "预览图（用于列表和提示词助手）", "ko": "견본 이미지 (목록과 프롬프트 보조에 쓰는 그림)"},
-    "🖼 見本を差し替える": {"en": "🖼 Replace preview", "zh": "🖼 替换预览图", "ko": "🖼 견본 바꾸기"},
     "ほかの RefMod の素材を足す": {"en": "Add sources from another RefMod", "zh": "添加其他 RefMod 的素材", "ko": "다른 RefMod의 소재 더하기"},
     "＋ 足す": {"en": "＋ Add", "zh": "＋ 添加", "ko": "＋ 더하기"},
     "↩ 直前の編集を元に戻す": {"en": "↩ Undo the last edit", "zh": "↩ 撤销上一次编辑", "ko": "↩ 직전 편집 되돌리기"},
-    "素材・コマの編集は RefMod の中身（潜在）を書き換えます。直前の 1 回だけ元に戻せます。絵そのものは直せないので、変えたいときは素材から作り直してください。": {"en": "Editing sources and frames rewrites the RefMod's contents (latents). Only the last edit can be undone. The pictures themselves cannot be changed; to change them, rebuild from the source files.", "zh": "编辑素材和帧会改写 RefMod 的内容（潜变量）。只能撤销上一次编辑。图像本身无法修改，想改时请从素材重新制作。", "ko": "소재·프레임 편집은 RefMod의 내용(잠재)을 다시 씁니다. 직전 1회만 되돌릴 수 있습니다. 그림 자체는 고칠 수 없으니 바꾸려면 소재에서 다시 만들어 주세요."},
     "↑ 前へ": {"en": "↑ Up", "zh": "↑ 向前", "ko": "↑ 앞으로"},
     "↓ 後へ": {"en": "↓ Down", "zh": "↓ 向后", "ko": "↓ 뒤로"},
     "✕ 外す": {"en": "✕ Remove", "zh": "✕ 移除", "ko": "✕ 빼기"},
-    "消すコマ": {"en": "Frames to remove", "zh": "要删除的帧", "ko": "지울 프레임"},
     "✂ 選んだコマを消す": {"en": "✂ Remove selected frames", "zh": "✂ 删除所选帧", "ko": "✂ 선택한 프레임 지우기"},
-    "等間隔に間引いて残すコマ数": {"en": "Frames to keep (evenly spaced)", "zh": "等间隔抽取后保留的帧数", "ko": "등간격으로 솎아 남길 프레임 수"},
-    "✂ 間引く": {"en": "✂ Thin out", "zh": "✂ 抽帧", "ko": "✂ 솎아내기"},
 }
 
 # 字・ボタンは本体の CSS 変数（--h3-*）に合わせる。チェックの字は同じ箱の見出し・本体の RefMod 保存のチェックと同じ 12px・muted（#325）、
@@ -202,11 +197,38 @@ CSS = """
 }
 #rmm-ed-frames { gap: 0 !important; padding: 0 !important; background: none !important; border: 0 !important; }
 /* コマの欄の見出し・数字・間引きの見出しも「素材」「名前」と同じ 12px・muted・0.04em（.wrap の規則で muted2 になるのを上書き）*/
-#rmm-ed-frdrop span, #rmm-ed-frdrop label span, #rmm-ed-frn span, #rmm-ed-frn label, #rmm-ed-frn .head span {
+#rmm-ed-frdrop span, #rmm-ed-frdrop label span {
     font-size: 12px !important; color: var(--h3-muted) !important;
     letter-spacing: 0.04em !important; font-weight: 400 !important;
 }
 #rmm-ed-hint p { font-size: 12px !important; color: var(--h3-faint) !important; margin: 8px 0 0 0 !important; }
+/* 🆕 1.2.0 STATUS の右（見た目の説明）。ボタン 2 つは横並び */
+#rmm-desc-row { gap: 6px !important; flex-wrap: nowrap !important; }
+#rmm-desc-row .rmm-ed-btn { min-width: 0 !important; letter-spacing: 0.06em !important; }
+#rmm-status-side .form { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; }
+#rmm-status-side label span, #rmm-status-side [data-testid="block-info"] {
+    font-size: 12px !important; color: var(--h3-muted) !important; letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#rmm-status-side textarea { font-size: 12px !important; line-height: 1.55 !important; }
+/* 編集の箱のタブ（アコーディオンの見出しと同じ 12px・muted、選んでいるタブはアクセント色の下線）*/
+#rmm-ed-tabs { margin-top: 2px !important; }
+#rmm-ed-tabs .tab-wrapper, #rmm-ed-tabs [role="tablist"] { border-bottom: 1px solid var(--h3-border) !important; }
+#rmm-ed-tabs button[role="tab"] {
+    font-size: 12px !important; color: var(--h3-muted) !important; letter-spacing: 0.08em !important;
+    font-weight: 400 !important; padding: 6px 10px !important;
+}
+#rmm-ed-tabs button[role="tab"][aria-selected="true"] { color: var(--h3-accent) !important; }
+#rmm-ed-tabs .tabitem { padding: 6px 0 0 0 !important; border: 0 !important; background: none !important; }
+/* STATUS のコマの並び（番号は「消すコマ」の番号と同じ）*/
+#rmm-detail .rmm-d-frames { margin-top: 10px; }
+#rmm-detail .rmm-d-fhead { font-size: 11px; color: var(--h3-faint); letter-spacing: 0.06em; margin-bottom: 4px; }
+#rmm-detail .rmm-d-fstrip { display: flex; flex-wrap: wrap; gap: 4px; }
+#rmm-detail .rmm-f { position: relative; width: 56px; height: 56px; border-radius: 4px; overflow: hidden;
+                     border: 1px solid var(--h3-border); background: var(--h3-bg); }
+#rmm-detail .rmm-f img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#rmm-detail .rmm-f-none { display: block; width: 100%; height: 100%; }
+#rmm-detail .rmm-f-no { position: absolute; left: 3px; top: 2px; font-size: 10px; line-height: 1.2; padding: 0 4px;
+                        border-radius: 3px; color: #fff; background: rgba(0, 0, 0, 0.55); font-variant-numeric: tabular-nums; }
 """
 
 
@@ -459,38 +481,50 @@ def _write_raw(name, hdr, key, top, mems):
     _bk_mark(name)
 
 
-# ---- 見本（一覧の小さな絵 _thumb と、プロンプト補助用の _p）は素材の番号で並ぶ → 並べ替えに付いていく
-def _pics(name, i):
-    return _g("_refmod_thumb_path")(name, i), _g("_refmod_prev_path")(name, i)
+# ---- 見本の絵（一覧の _<i>.jpg・プロンプト補助の _<i>_p.jpg・🆕 1.2.0 コマの _<i>_f<k>.jpg）は素材の番号で並ぶ
+def _td():
+    return os.path.join(_g("REFMOD_DIR"), _g("REFMOD_THUMB_DIR"))
 
 
-def _pic_idx(name):
-    """見本がある素材の番号（ファイル名から。途中に音声＝見本なしが挟まっても取りこぼさない）"""
-    d = os.path.dirname(_pics(name, 0)[0])
-    pat = re.compile(rf"^{re.escape(name.replace('/', '__'))}_(\d+)(?:_p)?\.jpg$")
+def _pic_files(name):
+    """{素材の番号: [(後ろの印, パス)]}（ファイル名から。途中に音声＝見本なしが挟まっても取りこぼさない）"""
+    pat = re.compile(rf"^{re.escape(name.replace('/', '__'))}_(\d+)((?:_p|_f\d+)?)\.jpg$")
+    out = {}
     try:
-        return sorted({int(m.group(1)) for f in os.listdir(d) for m in [pat.match(f)] if m})
+        for f in os.listdir(_td()):
+            m = pat.match(f)
+            if m:
+                out.setdefault(int(m.group(1)), []).append((m.group(2), os.path.join(_td(), f)))
     except OSError:
-        return []
+        pass
+    return out
+
+
+def _pic_path(name, i, suf=""):
+    return os.path.join(_td(), f"{name.replace('/', '__')}_{int(i)}{suf}.jpg")
+
+
+def _fpath(name, i, k):
+    return _pic_path(name, i, f"_f{int(k)}")
 
 
 def _pics_reorder(name, order, extra=None):
-    """新しい並びの i 番目 ← order[i]（元の番号。None なら extra[i] の (thumb, prev) から写す）"""
+    """新しい並びの i 番目 ← order[i]（元の番号。None なら extra[i]＝(別の RefMod の名前, 番号) から写す）"""
     import shutil
-    tmpd = os.path.join(_g("REFMOD_DIR"), _g("REFMOD_THUMB_DIR"), "_reorder")
+    tmpd = os.path.join(_td(), "_reorder")
     shutil.rmtree(tmpd, ignore_errors=True)
     os.makedirs(tmpd, exist_ok=True)
-    for i in _pic_idx(name):                                      # 元をいったん退ける
-        for j, p in enumerate(_pics(name, i)):
-            if os.path.isfile(p):
-                shutil.move(p, os.path.join(tmpd, f"{i}_{j}.jpg"))
-    for new, old in enumerate(order):
-        for j, dst in enumerate(_pics(name, new)):
-            src = (os.path.join(tmpd, f"{old}_{j}.jpg") if old is not None
-                   else ((extra or {}).get(new) or (None, None))[j])
-            if src and os.path.isfile(src):
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(src, dst)
+    old = {}
+    for i, fl in _pic_files(name).items():                        # 元をいったん退ける
+        for suf, p in fl:
+            q = os.path.join(tmpd, f"{i}{suf}.jpg")
+            shutil.move(p, q)
+            old.setdefault(i, []).append((suf, q))
+    for new, o in enumerate(order):
+        src = old.get(o, []) if o is not None else (
+            _pic_files(extra[new][0]).get(extra[new][1], []) if (extra and new in extra) else [])
+        for suf, p in src:
+            shutil.copy2(p, _pic_path(name, new, suf))
     shutil.rmtree(tmpd, ignore_errors=True)
 
 
@@ -505,10 +539,9 @@ def _backup(name):
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d, exist_ok=True)
     shutil.copy2(_path(name), os.path.join(d, "refmod.safetensors"))
-    for i in _pic_idx(name):
-        for j, p in enumerate(_pics(name, i)):
-            if os.path.isfile(p):
-                shutil.copy2(p, os.path.join(d, f"{i}_{j}.jpg"))
+    for i, fl in _pic_files(name).items():
+        for suf, p in fl:
+            shutil.copy2(p, os.path.join(d, f"{i}{suf}.jpg"))
 
 
 def _bk_mark(name):
@@ -541,16 +574,14 @@ def undo(name):
     src = os.path.join(d, "refmod.safetensors")
     if not has_backup(name):
         raise RuntimeError(_T('元に戻せる編集がありません'))
-    for i in _pic_idx(name):
-        for p in _pics(name, i):
-            if os.path.isfile(p):
-                os.remove(p)
+    for fl in _pic_files(name).values():
+        for _suf, p in fl:
+            os.remove(p)
+    pat = re.compile(r"^(\d+)((?:_p|_f\d+)?)\.jpg$")
     for f in os.listdir(d):
-        if f.endswith(".jpg"):
-            i, j = (int(x) for x in f[:-4].split("_"))
-            dst = _pics(name, i)[j]
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(os.path.join(d, f), dst)
+        m = pat.match(f)
+        if m:
+            shutil.copy2(os.path.join(d, f), _pic_path(name, m.group(1), m.group(2)))
     shutil.copy2(src, _path(name) + ".part")
     os.replace(_path(name) + ".part", _path(name))
     shutil.rmtree(d, ignore_errors=True)
@@ -637,7 +668,7 @@ def mem_add(name, other):
     add = [(dict(m, name=f"{leaf}_{k + 1}" if len(add) > 1 else leaf), z) for k, (m, z) in enumerate(add)]
     n0 = len(mems)
     _write_raw(name, hdr, key, top, mems + add)
-    extra = {n0 + k: _pics(other, k) for k in range(len(add))}
+    extra = {n0 + k: (other, k) for k in range(len(add))}
     _pics_reorder(name, list(range(n0)) + [None] * len(add), extra)
     return _T('＋ {v0} の素材 {v1} 件を足しました', v0=other, v1=f'{len(add)}'), n0
 
@@ -656,7 +687,21 @@ def _frames_keep(name, i, keep):
     _backup(name)
     mems[i] = (m, z[:, :, keep].contiguous())
     _write_raw(name, hdr, key, top, mems)
-    return int(z.shape[2]), len(keep)
+    # コマの絵も残したコマだけ・番号を詰めて付け直す
+    t = int(z.shape[2])
+    tmp = {}
+    for k in range(t):
+        p = _fpath(name, i, k)
+        if os.path.isfile(p):
+            q = p + ".mv"
+            os.replace(p, q)
+            tmp[k] = q
+    for new_k, old_k in enumerate(keep):
+        if old_k in tmp:
+            os.replace(tmp.pop(old_k), _fpath(name, i, new_k))
+    for q in tmp.values():
+        os.remove(q)
+    return t, len(keep)
 
 
 def frames_drop(name, i, drop):
@@ -672,38 +717,89 @@ def frames_drop(name, i, drop):
     return _T('✂ 素材 {v0} のコマ: {v1} → {v2}', v0=f'{int(i) + 1}', v1=f'{r[0]}', v2=f'{r[1]}')
 
 
-def frames_thin(name, i, n):
-    """等間隔に n コマへ（トークン上限の間引きと同じ選び方）"""
-    import numpy as np
-    t = int(_read_raw(name)[3][int(i)][1].shape[2])
-    n = max(1, min(t, int(n or t)))
-    r = _frames_keep(name, i, [int(round(x)) for x in np.linspace(0, t - 1, n)])
-    if r is None:
-        raise RuntimeError(_T('変更はありません'))
-    return _T('✂ 素材 {v0} のコマ: {v1} → {v2}', v0=f'{int(i) + 1}', v1=f'{r[0]}', v2=f'{r[1]}')
+# ---- 🆕 1.2.0 動画のコマを絵にする（STATUS にコマ番と並べる）。潜在を VAE で 1 コマずつ戻して小さな絵で控える。
+#      Stack（画像を束ねた動画）は 1 コマ＝1 枚の画像なので、そのまま元の絵に近いものが出る。
+#      ふつうの動画の素材は時間方向に圧縮されているため、2 コマ目以降はぼやけた目安になる
+FRAME_SIDE = 160
 
 
-def prev_swap(name, i, img):
-    """見本（一覧の小さな絵とプロンプト補助用）を差し替える。潜在はそのまま"""
+def frames_missing(name):
+    """コマの絵が足りない (素材の番号, コマ数) の並び"""
+    try:
+        items = _g("refmod_load")(name)[0]
+    except Exception:                                             # noqa: BLE001
+        return []
+    return [(i, int(z.shape[2])) for i, (k, z) in enumerate(items)
+            if k != "audio" and z.dim() == 5 and int(z.shape[2]) > 1
+            and not all(os.path.isfile(_fpath(name, i, t)) for t in range(int(z.shape[2])))]
+
+
+def frames_ensure(name):
+    """足りないコマの絵を作る。生成中・モデル未読み込みなら何もしない → 作った枚数"""
+    import torch
     from PIL import Image
-    _hdr, _key, _top, mems = _need(name, i)
-    i = int(i)
-    if mems[i][0].get("kind") == "audio":
-        raise RuntimeError(_T('❌ 音声の素材には見本がありません'))
-    src = img if isinstance(img, str) else getattr(img, "name", None)
-    if not src or not os.path.isfile(src):
-        raise RuntimeError(_T('❌ 見本にする画像を入れてください'))
-    th, pv = _pics(name, i)
-    os.makedirs(os.path.dirname(th), exist_ok=True)
-    side = int(_ST["ctx"].g.get("REFMOD_PREV_SIDE", 768))
-    with Image.open(src) as im:
-        im = im.convert("RGB")
-        p = im.copy()
-        p.thumbnail((side, side), Image.LANCZOS)
-        p.save(pv, quality=88)
-        im.thumbnail((160, 160), Image.LANCZOS)
-        im.save(th, quality=85)
-    return _T('🖼 素材 {v0} の見本を差し替えました', v0=f'{i + 1}')
+    todo = frames_missing(name) if name else []
+    if not todo or _g("_BUSY").is_set():
+        return 0
+    pipe = _ST["ctx"].g.get("pipe")
+    vae = getattr(pipe, "vae", None)
+    if vae is None:
+        return 0
+    items = _g("refmod_load")(name)[0]
+    dev = next(vae.parameters()).device
+    dt = next(vae.parameters()).dtype
+    lm = torch.tensor(vae.config.latents_mean, device=dev).view(1, -1, 1, 1, 1)
+    ls = torch.tensor(vae.config.latents_std, device=dev).view(1, -1, 1, 1, 1)
+    pm = torch.tensor(pipe.pixel_mean, device=dev).view(1, -1, 1, 1, 1)
+    ps = torch.tensor(pipe.pixel_std, device=dev).view(1, -1, 1, 1, 1)
+    os.makedirs(_td(), exist_ok=True)
+    made = 0
+    with torch.inference_mode():
+        for i, t in todo:
+            z = items[i][1]
+            for k in range(t):
+                p = _fpath(name, i, k)
+                if os.path.isfile(p):
+                    continue
+                if _g("_BUSY").is_set():                          # 途中で生成が始まったらやめる（残りは次に選んだとき）
+                    return made
+                zk = z[:, :, k:k + 1].to(dev, torch.float32) * ls + lm
+                x = vae.decode(zk.to(dt), return_dict=False)[0].float()
+                x = (x * ps + pm).clamp(0, 1)[0, :, 0]                # [3, H, W]
+                im = Image.fromarray((x.permute(1, 2, 0).cpu().numpy() * 255).round().astype("uint8"))
+                im.thumbnail((FRAME_SIDE, FRAME_SIDE), Image.LANCZOS)
+                im.save(p, quality=85)
+                made += 1
+    try:
+        torch.cuda.empty_cache()
+    except Exception:                                             # noqa: BLE001
+        pass
+    return made
+
+
+def _furi(p):
+    import base64
+    with open(p, "rb") as f:
+        return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii")
+
+
+def hook_detail_html(name, items):
+    """STATUS に足す HTML: 動画の素材ごとにコマを番号つきで並べる（絵が無いコマは番号だけ）"""
+    import html as _html
+    out = []
+    for i, (k, z) in enumerate(items or []):
+        if k == "audio" or z.dim() != 5 or int(z.shape[2]) <= 1:
+            continue
+        t = int(z.shape[2])
+        tiles = []
+        for f in range(t):
+            p = _fpath(name, i, f)
+            pic = f'<img src="{_furi(p)}" alt="" draggable="false">' if os.path.isfile(p) else '<span class="rmm-f-none"></span>'
+            tiles.append(f'<div class="rmm-f">{pic}<span class="rmm-f-no">{f + 1}</span></div>')
+        head = _html.escape(_T('素材 {v0} のコマ（{v1}）', v0=f'{i + 1}', v1=f'{t}'))
+        out.append(f'<div class="rmm-d-frames"><div class="rmm-d-fhead">{head}</div>'
+                   f'<div class="rmm-d-fstrip">{"".join(tiles)}</div></div>')
+    return "".join(out)
 
 
 # ---------------------------------------------------------------- 本体のフック
@@ -768,26 +864,22 @@ def hook_prompt(t, refs_by_kind=None):
 
 
 def hook_detail_rows(name, meta):
-    """FINDER の STATUS に出す行 [(見出し, 値)]。説明があれば本体の『説明』の行の代わりに見た目・服を出す"""
-    d = desc_get(name)
-    rows = []
-    if d["appearance"]:
-        rows.append((_T("見た目"), d["appearance"]))
-    if d["outfit"]:
-        rows.append((_T("服"), d["outfit"]))
-    # 🆕 1.1.0 種類・タグ（generic・空なら出さない）。行を返すと本体の『説明』の行が消えるので、説明だけのものは自分で出す
+    """FINDER の STATUS に出す行 [(見出し, 値)]。🆕 1.2.0 見た目・服は STATUS の右の欄で直すので行には出さない。
+    種類・タグ（generic・空なら出さない）と、見た目の説明として扱わない本家製の説明だけ"""
     try:
         ct, tags, _items = meta_info(name)
     except Exception:                                             # noqa: BLE001
         ct, tags = "generic", ""
-    extra = []
+    rows = []
     if ct and ct != "generic":
-        extra.append((_T("種類"), _ctype_label(ct)))
+        rows.append((_T("種類"), _ctype_label(ct)))
     if tags:
-        extra.append((_T("タグ"), tags))
-    if extra and not rows and str((meta or {}).get("description") or "").strip():
+        rows.append((_T("タグ"), tags))
+    meta = meta or {}
+    if (str(meta.get("description") or "").strip() and DESC_KEY not in meta
+            and str(meta.get("concept_type") or "") != "identity"):
         rows.append((_T("説明"), str(meta["description"])))
-    return rows + extra
+    return rows
 
 
 # ---------------------------------------------------------------- 本体が呼ぶ入口
@@ -796,6 +888,7 @@ def setup(ctx):
     ctx.hook("prompt_pre", hook_prompt)
     ctx.hook("refmod_after_save", hook_after_save)
     ctx.hook("refmod_detail_rows", hook_detail_rows)
+    ctx.hook("refmod_detail_html", hook_detail_html)              # 🆕 1.2.0 動画のコマ
     ctx.help("refmod", HELP["refmod"])
 
 
@@ -811,39 +904,39 @@ def build_slot(ctx, slot):
     elif slot == "refmod_bar2":                                    # CREATE ▸ RefMod: 検索〜Strength の箱の 2 段目
         ui["auto_cb"] = gr.Checkbox(value=AUTO_DESC_DEFAULT, label="見た目の説明を自動で足す",
                                     elem_id="refmod-auto-desc")
-    elif slot == "rmm_right":                                      # FINDER の右列: STATUS の下
-        with gr.Accordion("見た目の説明", open=False, elem_classes=["panel-acc"]):
-            ui["ap"] = gr.Textbox(label="見た目（髪・目・顔・目印）", lines=3, elem_id="rmm-desc-ap")
-            ui["of"] = gr.Textbox(label="服（@prompt で使う。自動では足さない）", lines=2, elem_id="rmm-desc-of")
-            ui["gen"] = gr.Button("✍️ 説明を生成", elem_id="rmm-desc-gen-btn")
-            ui["save"] = gr.Button("💾 説明を保存", elem_id="rmm-desc-save-btn")
-        # 🆕 1.1.0 編集パネル（#331）。字・ボタンは「名前・フォルダを変える」の箱と同じ
-        with gr.Accordion("種類・タグ", open=False, elem_classes=["panel-acc"]):
-            ui["ct"] = gr.Dropdown(choices=[(_ctype_label(v), v) for v in CONCEPT_TYPES], value="generic",
-                                   label="種類（concept_type）", elem_id="rmm-ed-ct", elem_classes=["rmm-ed-dd"])
-            ui["tags"] = gr.Textbox(label="タグ（カンマ区切り）", elem_id="rmm-ed-tags")
-            ui["meta_btn"] = gr.Button("💾 種類・タグを保存", elem_id="rmm-ed-meta-btn", elem_classes=["rmm-ed-btn"])
-        with gr.Accordion("素材を編集", open=False, elem_classes=["panel-acc"]):
-            ui["mem"] = gr.Dropdown(choices=[], value=None, label="素材", elem_id="rmm-ed-mem", elem_classes=["rmm-ed-dd"])
-            with gr.Row(elem_id="rmm-ed-row"):
-                ui["up"] = gr.Button("↑ 前へ", min_width=40, elem_id="rmm-ed-up", elem_classes=["rmm-ed-btn"])
-                ui["down"] = gr.Button("↓ 後へ", min_width=40, elem_id="rmm-ed-down", elem_classes=["rmm-ed-btn"])
-                ui["rm"] = gr.Button("✕ 外す", min_width=40, elem_id="rmm-ed-rm", elem_classes=["rmm-ed-btn"])
-            with gr.Column(visible=False, elem_id="rmm-ed-frames") as ui["fr_box"]:
-                ui["fr_drop"] = gr.CheckboxGroup(choices=[], value=[], label="消すコマ", elem_id="rmm-ed-frdrop")
-                ui["fr_drop_btn"] = gr.Button("✂ 選んだコマを消す", elem_id="rmm-ed-frdrop-btn", elem_classes=["rmm-ed-btn"])
-                ui["fr_n"] = gr.Slider(1, 2, value=2, step=1, label="等間隔に間引いて残すコマ数", elem_id="rmm-ed-frn")
-                ui["fr_thin_btn"] = gr.Button("✂ 間引く", elem_id="rmm-ed-frthin-btn", elem_classes=["rmm-ed-btn"])
-            ui["pv"] = gr.File(file_count="single", file_types=["image"], label="見本の画像（一覧とプロンプト補助に使う絵）",
-                               elem_id="rmm-ed-pv")
-            ui["pv_btn"] = gr.Button("🖼 見本を差し替える", elem_id="rmm-ed-pv-btn", elem_classes=["rmm-ed-btn"])
-            ui["add"] = gr.Dropdown(choices=[], value=None, filterable=True, label="ほかの RefMod の素材を足す",
-                                    elem_id="rmm-ed-add", elem_classes=["rmm-ed-dd"])
-            ui["add_btn"] = gr.Button("＋ 足す", elem_id="rmm-ed-add-btn", elem_classes=["rmm-ed-btn"])
-            ui["undo_btn"] = gr.Button("↩ 直前の編集を元に戻す", interactive=False, elem_id="rmm-ed-undo-btn",
-                                       elem_classes=["rmm-ed-btn"])
-            gr.Markdown("素材・コマの編集は RefMod の中身（潜在）を書き換えます。直前の 1 回だけ元に戻せます。"
-                        "絵そのものは直せないので、変えたいときは素材から作り直してください。", elem_id="rmm-ed-hint")
+    elif slot == "rmm_status":                                     # 🆕 1.2.0 FINDER の STATUS の右: 見た目の説明を直す
+        ui["ap"] = gr.Textbox(label="見た目（髪・目・顔・目印）", lines=3, elem_id="rmm-desc-ap")
+        ui["of"] = gr.Textbox(label="服（@prompt で使う。自動では足さない）", lines=2, elem_id="rmm-desc-of")
+        with gr.Row(elem_id="rmm-desc-row"):
+            ui["gen"] = gr.Button("✍️ 説明を生成", min_width=60, elem_id="rmm-desc-gen-btn", elem_classes=["rmm-ed-btn"])
+            ui["save"] = gr.Button("💾 説明を保存", min_width=60, elem_id="rmm-desc-save-btn", elem_classes=["rmm-ed-btn"])
+    elif slot == "rmm_right":                                      # FINDER の右列: 編集（1 つの箱をタブで切り替え）
+        with gr.Accordion("RefMod を編集", open=False, elem_classes=["panel-acc"], elem_id="rmm-ed-acc"):
+            with gr.Tabs(elem_id="rmm-ed-tabs"):
+                with gr.Tab("素材", id="rmm-ed-t-mem"):
+                    ui["mem"] = gr.Dropdown(choices=[], value=None, label="素材", elem_id="rmm-ed-mem",
+                                            elem_classes=["rmm-ed-dd"])
+                    with gr.Row(elem_id="rmm-ed-row"):
+                        ui["up"] = gr.Button("↑ 前へ", min_width=40, elem_id="rmm-ed-up", elem_classes=["rmm-ed-btn"])
+                        ui["down"] = gr.Button("↓ 後へ", min_width=40, elem_id="rmm-ed-down", elem_classes=["rmm-ed-btn"])
+                        ui["rm"] = gr.Button("✕ 外す", min_width=40, elem_id="rmm-ed-rm", elem_classes=["rmm-ed-btn"])
+                    with gr.Column(visible=False, elem_id="rmm-ed-frames") as ui["fr_box"]:
+                        ui["fr_drop"] = gr.CheckboxGroup(choices=[], value=[], label="消すコマ（番号は STATUS のコマ）",
+                                                         elem_id="rmm-ed-frdrop")
+                        ui["fr_drop_btn"] = gr.Button("✂ 選んだコマを消す", elem_id="rmm-ed-frdrop-btn",
+                                                      elem_classes=["rmm-ed-btn"])
+                    ui["add"] = gr.Dropdown(choices=[], value=None, filterable=True, label="ほかの RefMod の素材を足す",
+                                            elem_id="rmm-ed-add", elem_classes=["rmm-ed-dd"])
+                    ui["add_btn"] = gr.Button("＋ 足す", elem_id="rmm-ed-add-btn", elem_classes=["rmm-ed-btn"])
+                    ui["undo_btn"] = gr.Button("↩ 直前の編集を元に戻す", interactive=False, elem_id="rmm-ed-undo-btn",
+                                               elem_classes=["rmm-ed-btn"])
+                    gr.Markdown("素材・コマの編集は RefMod の中身（潜在）を書き換えます。直前の 1 回だけ元に戻せます。",
+                                elem_id="rmm-ed-hint")
+                with gr.Tab("種類・タグ", id="rmm-ed-t-meta"):
+                    ui["ct"] = gr.Dropdown(choices=[(_ctype_label(v), v) for v in CONCEPT_TYPES], value="generic",
+                                           label="種類（concept_type）", elem_id="rmm-ed-ct", elem_classes=["rmm-ed-dd"])
+                    ui["tags"] = gr.Textbox(label="タグ（カンマ区切り）", elem_id="rmm-ed-tags")
+                    ui["meta_btn"] = gr.Button("💾 種類・タグを保存", elem_id="rmm-ed-meta-btn", elem_classes=["rmm-ed-btn"])
 
 
 def _set_on_save_refs(v):
@@ -909,31 +1002,28 @@ def _mem_choices(items):
 
 
 def _ed_view(name, idx=None):
-    """編集パネルの中身 (種類, タグ, 素材, コマの箱, 消すコマ, 残すコマ数, 足す候補, 元に戻す, 見本の欄)"""
+    """編集パネルの中身 (種類, タグ, 素材, コマの箱, 消すコマ, 足す候補, 元に戻す)"""
     gr = _ST["ctx"].gr
     others = [n for n in _g("refmod_choices")() if n != name]
     if not name:
         return (gr.update(value="generic"), gr.update(value=""), gr.update(choices=[], value=None),
-                gr.update(visible=False), gr.update(choices=[], value=[]), gr.update(),
-                gr.update(choices=others, value=None), gr.update(interactive=False), gr.update(value=None))
+                gr.update(visible=False), gr.update(choices=[], value=[]),
+                gr.update(choices=others, value=None), gr.update(interactive=False))
     try:
         ct, tags, items = meta_info(name)
     except Exception:                                             # noqa: BLE001
         ct, tags, items = "generic", "", []
     ch = _mem_choices(items)
     idx = idx if (idx is not None and 0 <= int(idx) < len(items)) else (0 if items else None)
-    fr = gr.update(visible=False)
-    drop, thin = gr.update(choices=[], value=[]), gr.update()
+    fr, drop = gr.update(visible=False), gr.update(choices=[], value=[])
     if idx is not None:
         k, z = items[int(idx)]
         if k != "audio" and int(z.shape[2]) > 1:
-            t = int(z.shape[2])
             fr = gr.update(visible=True)
-            drop = gr.update(choices=[str(x) for x in range(1, t + 1)], value=[])
-            thin = gr.update(minimum=1, maximum=t, value=max(1, t // 2))
+            drop = gr.update(choices=[str(x) for x in range(1, int(z.shape[2]) + 1)], value=[])
     return (gr.update(value=ct if ct in CONCEPT_TYPES else "generic"), gr.update(value=tags),
-            gr.update(choices=ch, value=idx), fr, drop, thin, gr.update(choices=others, value=None),
-            gr.update(interactive=has_backup(name)), gr.update(value=None))
+            gr.update(choices=ch, value=idx), fr, drop, gr.update(choices=others, value=None),
+            gr.update(interactive=has_backup(name)))
 
 
 def _ed_load(name):
@@ -942,7 +1032,18 @@ def _ed_load(name):
 
 def _ed_pick(name, idx):
     v = _ed_view(name, idx)
-    return v[3], v[4], v[5]
+    return v[3], v[4]
+
+
+def _frames_job(name):
+    """選んだあと・素材を足したあと: 足りないコマの絵を作って STATUS を描き直す（作るものが無ければ送らない）"""
+    gr = _ST["ctx"].gr
+    try:
+        if name and frames_ensure(name):
+            return gr.update(value=_g("rmm_detail_html")(name))
+    except Exception as e:                                        # noqa: BLE001
+        _log(_T('コマの絵を作れませんでした: {v0}', v0=f'{e}'))
+    return gr.update()
 
 
 def _ed_run(fn, name, *args):
@@ -988,14 +1089,6 @@ def _ed_frdrop(name, i, drop):
     return _ed_run(lambda n, j: (frames_drop(n, j, drop), j), name, i)
 
 
-def _ed_frthin(name, i, k):
-    return _ed_run(lambda n, j: (frames_thin(n, j, k), j), name, i)
-
-
-def _ed_pv(name, i, img):
-    return _ed_run(lambda n, j: (prev_swap(n, j, img), j), name, i)
-
-
 def _ed_undo(name):
     def _u(n):
         if not n:
@@ -1030,20 +1123,23 @@ def wire(ctx, comps):
                          queue=False, show_progress="hidden")
     if "ct" in ui and "rmm_sel" in comps:
         sel = comps["rmm_sel"]
-        ed_out = [ui["ct"], ui["tags"], ui["mem"], ui["fr_box"], ui["fr_drop"], ui["fr_n"], ui["add"], ui["undo_btn"], ui["pv"]]
+        det = comps["rmm_detail"]
+        ed_out = [ui["ct"], ui["tags"], ui["mem"], ui["fr_box"], ui["fr_drop"], ui["add"], ui["undo_btn"]]
         evs = list(comps.get("rmm_pick_events") or [])
         for ev in evs or []:
-            ev.then(fn=_ed_load, inputs=[sel], outputs=ed_out, queue=False, show_progress="hidden")
+            ev.then(fn=_ed_load, inputs=[sel], outputs=ed_out, queue=False, show_progress="hidden").then(
+                fn=_frames_job, inputs=[sel], outputs=[det], show_progress="hidden")
         if not evs:
             sel.change(fn=_ed_load, inputs=[sel], outputs=ed_out, queue=False, show_progress="hidden")
-        ui["mem"].input(fn=_ed_pick, inputs=[sel, ui["mem"]], outputs=[ui["fr_box"], ui["fr_drop"], ui["fr_n"]],
+        ui["mem"].input(fn=_ed_pick, inputs=[sel, ui["mem"]], outputs=[ui["fr_box"], ui["fr_drop"]],
                         queue=False, show_progress="hidden")
-        outs = [comps["rmm_msg"], comps["rmm_detail"]] + ed_out
+        outs = [comps["rmm_msg"], det] + ed_out
         # 潜在を書き換えたあとは FINDER の一覧（絵・参照の数）と CREATE の選択欄も描き直す（本体の関数を借りる）
         ref_in, ref_out = comps.get("rmm_refresh_in"), comps.get("rmm_refresh_out")
         dd_out = comps.get("refmod_dd_out")
 
         def _chain(ev):
+            ev = ev.then(fn=_frames_job, inputs=[sel], outputs=[det], show_progress="hidden")
             if ref_in is not None and ref_out is not None:
                 ev = ev.then(fn=_g("render_refmods"), inputs=ref_in, outputs=ref_out, queue=False, show_progress="hidden")
             if dd_out is not None:
@@ -1054,6 +1150,5 @@ def wire(ctx, comps):
         for btn, fn, extra in ((ui["up"], _ed_up, [ui["mem"]]), (ui["down"], _ed_down, [ui["mem"]]),
                                (ui["rm"], _ed_rm, [ui["mem"]]), (ui["add_btn"], _ed_add, [ui["add"]]),
                                (ui["fr_drop_btn"], _ed_frdrop, [ui["mem"], ui["fr_drop"]]),
-                               (ui["fr_thin_btn"], _ed_frthin, [ui["mem"], ui["fr_n"]]),
-                               (ui["pv_btn"], _ed_pv, [ui["mem"], ui["pv"]]), (ui["undo_btn"], _ed_undo, [])):
+                               (ui["undo_btn"], _ed_undo, [])):
             _chain(btn.click(fn=fn, inputs=[sel] + extra, outputs=outs, show_progress="minimal"))

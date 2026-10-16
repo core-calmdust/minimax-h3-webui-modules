@@ -820,5 +820,6 @@
  "✨ 拡大しています": "✨ Upscaling",
  "🎨 映像に戻しています（デコード）": "🎨 Converting back to video (decoding)",
  "🎞️ 仕上げと書き出し": "🎞️ Finishing and writing",
- "   内訳: 読み込み {v0} / エンコード {v1} / 拡大 {v2} / デコード {v3} / 書き出し {v4}": "   Breakdown: load {v0} / encode {v1} / upscale {v2} / decode {v3} / write {v4}"
+ "   内訳: 読み込み {v0} / エンコード {v1} / 拡大 {v2} / デコード {v3} / 書き出し {v4}": "   Breakdown: load {v0} / encode {v1} / upscale {v2} / decode {v3} / write {v4}",
+ "RefMod を選ぶと、ここに中身が出ます": "Select a RefMod to see its contents here"
 }

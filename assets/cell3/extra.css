@@ -66,3 +66,29 @@
 #rmm-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: 12px; }
 #rmm-detail dt { color: var(--h3-faint); letter-spacing: 0.04em; }
 #rmm-detail dd { color: var(--h3-muted); margin: 0; word-break: break-all; }
+/* 🆕 #332 STATUS を検索と一覧の間へ（横長）。左＝中身、右＝見た目の説明（拡張モジュール）*/
+#rmm-status-panel { margin: 4px 0 10px 0 !important; min-height: 0 !important; }
+#rmm-status-row { gap: 16px !important; align-items: flex-start !important; flex-wrap: wrap !important; }
+#rmm-status-row > #rmm-detail { flex: 3 1 0% !important; min-width: 320px !important; }
+#rmm-status-row > #rmm-status-side { flex: 2 1 0% !important; min-width: 240px !important; }
+#rmm-status-side { border-left: 1px solid var(--h3-border) !important; padding-left: 16px !important; gap: 8px !important; }
+#rmm-detail .rmm-d-empty { font-size: 12px; color: var(--h3-faint); letter-spacing: 0.04em; padding: 6px 0; }
+/* 情報は「小さな見出し＋値」を横に並べる（長い値は 1 行まるごと）*/
+#rmm-detail .rmm-d-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+                          gap: 8px 16px; margin: 0 0 12px 0; }
+#rmm-detail .rmm-d-kv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#rmm-detail .rmm-d-kv.rmm-d-wide { grid-column: 1 / -1; }
+#rmm-detail .rmm-d-kv span { font-size: 10px; color: var(--h3-faint); letter-spacing: 0.1em; }
+#rmm-detail .rmm-d-kv b { font-size: 12px; color: var(--h3-text3); font-weight: 400; letter-spacing: 0.02em;
+                          word-break: normal; overflow-wrap: anywhere; line-height: 1.45; }
+#rmm-detail .rmm-d-refs { margin-bottom: 0; }
+/* 置き場所の行の右にアイコンの大きさ */
+#rmm-head-row { align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; }
+#rmm-head-row > #rmm-head { flex: 1 1 auto !important; min-width: 0 !important; }
+#rmm-head-row #rmm-head p { margin: 0 !important; }
+#rmm-icon { flex: 0 0 160px !important; padding: 0 !important; background: none !important; border: 0 !important; }
+#rmm-icon .head, #rmm-icon input[type="number"], #rmm-icon .reset-button, #rmm-icon .min_value, #rmm-icon .max_value {
+    display: none !important;
+}
+#rmm-icon input[type="range"] { accent-color: var(--h3-accent) !important; }
+#rmm-panel #rmm-gallery .grid-container { grid-template-columns: repeat(var(--rmm-cols, 5), 1fr) !important; }
