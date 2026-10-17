@@ -29,7 +29,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
@@ -1336,6 +1336,12 @@ def hook_prompt(t, refs_by_kind=None):
         def _auto(m):
             n = int(m.group(2))
             if n in used or not (1 <= n <= len(sel)):
+                return m.group(0)
+            # 1.5.3（WebUI #400）: 見た目の自動挿入は人物（identity）の RefMod だけ。服・場所などの RefMod には人物の説明を足さない
+            try:
+                if meta_info(sel[n - 1])[0] != "identity":
+                    return m.group(0)
+            except Exception:                                     # noqa: BLE001
                 return m.group(0)
             ap = desc_get(sel[n - 1])["appearance"]
             if not ap:
