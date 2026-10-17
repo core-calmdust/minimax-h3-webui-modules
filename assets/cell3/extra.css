@@ -130,7 +130,7 @@
 /* 🆕 ver1.7 #359 高速化（SLA / Fast Spark / Spark / OFF）: ドラフトモードの横に「高速化」＋プルダウン */
 #draft-sol-row { justify-content: flex-start !important; }
 #draft-sol-row > .form { flex: 0 0 auto !important; width: auto !important; }
-#draft-sol-row > #accel-lbl { flex: 0 0 auto !important; width: auto !important; margin-left: 18px !important;
+#draft-sol-row > #accel-lbl { flex: 0 0 auto !important; width: auto !important; margin-left: auto !important;   /* 右寄せ（利用者指定） */
                               padding: 0 !important; min-height: 0 !important; height: auto !important; }
 #accel-lbl .accel-lbl-t { font-size: 14px; letter-spacing: 0.48px; color: var(--body-text-color);
                           white-space: nowrap; line-height: 20px; display: block; }
