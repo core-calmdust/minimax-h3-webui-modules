@@ -10,7 +10,7 @@
   {
    "name": "extra.css",
    "file": "assets/cell3/extra.css",
-   "sha256": "420392d444b67222a41f16bb2657c81369faef05bbd6a68796f05ba79108e894"
+   "sha256": "4a22b38b21d4cef7e29531fd6bbd326295717eee3fde85eb9f66cb82793a8c17"
   },
   {
    "name": "_THEME_APPLY_JS",
@@ -80,7 +80,7 @@
   {
    "name": "HELP_JS",
    "file": "assets/cell3/js/help.js",
-   "sha256": "33be1b3f7498b58d9c70fabd183239072835de42767e6f113e6562a8f1e50a72"
+   "sha256": "ef546668ba1acc81b84ae291e68475e08191df55c81bbcd4fda9ba35f063ea0e"
   },
   {
    "name": "LIB_NAV_JS",

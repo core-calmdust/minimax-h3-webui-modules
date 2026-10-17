@@ -18,6 +18,21 @@
       t.appendChild(c);
     });
   }
+  /* 🆕 ver1.7 #361 高速化の「高速化」とプルダウンの文字を、ドラフトモードの文字と同じ見た目にする（テーマ切替にも追従） */
+  function syncAccel() {
+    var src = document.querySelector('#t2i-fast label .label-text') || document.querySelector('#t2i-fast label span');
+    if (!src) return;
+    var c = getComputedStyle(src);
+    ['#accel-lbl .accel-lbl-t', '#accel-dd input'].forEach(function (sel) {
+      var d = document.querySelector(sel);
+      if (!d) return;
+      ['fontSize', 'fontWeight', 'color', 'letterSpacing', 'fontFamily'].forEach(function (k) {
+        if (d.style[k] !== c[k]) d.style.setProperty(k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }), c[k], 'important');
+      });
+    });
+  }
+  if (!window.__h3AccelSync) { window.__h3AccelSync = setInterval(syncAccel, 800); }
+  syncAccel();
   if (window.__h3Help) { place(); return; }
   window.__h3Help = true;
   window.__h3HelpPlace = place;

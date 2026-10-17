@@ -127,15 +127,16 @@
 }
 #lora-icon input[type="range"] { accent-color: var(--h3-accent) !important; }
 #lora-panel #lora-gallery .grid-container { grid-template-columns: repeat(var(--lora-cols, 5), 1fr) !important; }
-/* 🆕 ver1.7 #359 高速化（SLA / Fast Spark / Spark / OFF）: ドラフトモードの横に「高速化」＋プルダウン */
-#draft-sol-row { justify-content: flex-start !important; }
+/* 🆕 ver1.7 #359/#361 高速化（SLA / Fast Spark / Spark / OFF）: ドラフトモードと同じ 1 行の右寄せに「高速化」＋プルダウン。
+   字の大きさ・色・字間は help.js がドラフトモードの文字から写す（テーマ・言語で変わっても揃う）。ここは写す前の既定と並びだけ */
+#draft-sol-row { justify-content: flex-start !important; flex-wrap: nowrap !important; gap: 8px !important; }
 #draft-sol-row > .form { flex: 0 0 auto !important; width: auto !important; }
-#draft-sol-row > #accel-lbl { flex: 0 0 auto !important; width: auto !important; margin-left: auto !important;   /* 右寄せ（利用者指定） */
+#draft-sol-row > #accel-lbl { flex: 0 0 auto !important; width: auto !important; margin-left: auto !important;
                               padding: 0 !important; min-height: 0 !important; height: auto !important; }
-#accel-lbl .accel-lbl-t { font-size: 14px; letter-spacing: 0.48px; color: var(--body-text-color);
-                          white-space: nowrap; line-height: 20px; display: block; }
-#draft-sol-row > #accel-dd { flex: 0 0 200px !important; width: 200px !important; margin: 0 !important; }
 #accel-lbl .html-container, #accel-lbl .prose { padding: 0 !important; margin: 0 !important; }
+#accel-lbl .accel-lbl-t { font-size: inherit; font-weight: inherit; color: inherit; letter-spacing: inherit;
+                          white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+#draft-sol-row > #accel-dd { flex: 0 1 170px !important; width: 170px !important; min-width: 96px !important; margin: 0 !important; }
 #tstr-panel #accel-dd .wrap:not(.default) {
     border: 1px solid var(--border-color-primary) !important; border-radius: 4px !important;
     background: var(--input-background-fill) !important;
@@ -143,5 +144,9 @@
 }
 #tstr-panel #accel-dd .wrap-inner, #tstr-panel #accel-dd .secondary-wrap {
     padding: 0 !important; min-height: 0 !important; height: 26px !important; align-items: center !important; }
-#tstr-panel #accel-dd input { font-size: 14px !important; letter-spacing: 0.48px !important;
-                              height: 26px !important; padding: 0 !important; }
+#tstr-panel #accel-dd input { height: 26px !important; padding: 0 !important; min-width: 0 !important; width: 100% !important;
+                              text-overflow: ellipsis !important; }
+#tstr-panel #accel-dd .wrap, #tstr-panel #accel-dd .wrap-inner, #tstr-panel #accel-dd .secondary-wrap { min-width: 0 !important; }
+#tstr-panel #accel-dd .wrap-inner { position: relative !important; }
+#tstr-panel #accel-dd input { padding-right: 18px !important; text-overflow: clip !important; }
+#tstr-panel #accel-dd .icon-wrap { right: 0 !important; left: auto !important; }
