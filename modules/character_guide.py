@@ -21,12 +21,12 @@ import os
 import numpy as np
 
 NAME = "character_guide"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 API = 1
 SLOTS = ("motion_group", "system_cards")
 
 DETAIL_DEFAULT = -0.2
-DETAIL_CHOICES = [("−0.3", -0.3), ("−0.25", -0.25), ("−0.2（既定）", -0.2), ("−0.15", -0.15), ("−0.1", -0.1), ("OFF（0）", 0.0)]
+DETAIL_MIN, DETAIL_MAX, DETAIL_STEP = -0.5, 0.3, 0.005     # 1.0.1 利用者指定: スライダーで細かく（例 −0.185）
 DETAIL_BLOCKS = 10           # 最後の何ブロックに掛けるか
 GAIN_CLIP = (0.8, 1.25)
 SELF_REF_PREFIX = ("The main character is the person shown in <Picture 1>; keep exactly the same face, "
@@ -47,7 +47,7 @@ HELP_CB = ("**長尺で顔と画づくりを保ちます。**ON のとき 3 つ�
            "R2V の長尺は自分の人物画像が参照なので、②③だけ掛けます。キーフレームを使う長尺では①を使いません。"
            "選んだ顔のコマは STATUS に出ます")
 HELP_SYS = ("Character Guide（CREATE ▸ Motion Context の下のスイッチ）で掛ける **Detail & Contrast** の強さです。"
-            "マイナスほど細部の尖り・硬さを抑えます（−0.2 が計測で最良）。OFF で掛けません。"
+            "マイナスほど細部の尖り・硬さを抑えます（−0.2 が計測で最良）。0 で掛けません。"
             "単発の生成には掛かりません")
 
 I18N = {
@@ -63,9 +63,9 @@ I18N = {
         "zh": "**在长视频中保持人物脸部与画面风格。**开启后会做三件事：① T2V 长视频会从第 1 段中挑选脸部清晰的一帧，从第 2 段起以该帧为参考生成（切换为 R2V，每段耗时约 1.5 倍）。② 将传给下一段的画面亮度对齐到第 1 段（防止越来越亮、越来越硬）。③ 抑制细节过锐（强度在 SYSTEM ▸ Character Guide）。\nR2V 长视频本来就以你的人物图片为参考，因此只做 ② 和 ③。使用关键帧的长视频不使用 ①。所选的脸部帧会显示在 STATUS 中",
         "ko": "**긴 영상에서 얼굴과 화면 분위기를 유지합니다.** ON이면 세 가지를 적용합니다: ① T2V 긴 영상에서는 1번째 구간에서 얼굴이 잘 나온 프레임을 골라 2번째 구간부터 그 프레임을 참조로 만듭니다(R2V로 바뀌므로 구간당 약 1.5배 시간). ② 다음 구간에 넘기는 프레임의 밝기를 1번째에 맞춥니다(갈수록 밝고 딱딱해지는 것을 막음). ③ 디테일이 날카로워지는 것을 억제합니다(강도는 SYSTEM ▸ Character Guide).\nR2V 긴 영상은 원래 자신의 인물 이미지가 참조이므로 ②③만 적용합니다. 키프레임을 쓰는 긴 영상에는 ①을 쓰지 않습니다. 고른 얼굴 프레임은 STATUS에 표시됩니다"},
     HELP_SYS: {
-        "en": "The strength of **Detail & Contrast** applied by Character Guide (the switch under CREATE ▸ Motion Context). More negative values soften over-sharp detail and harshness (−0.2 measured best). OFF disables it. Not applied to single generations",
-        "zh": "Character Guide（CREATE ▸ Motion Context 下方的开关）所使用的 **Detail & Contrast** 强度。数值越负，越能抑制细节过锐和生硬感（实测 −0.2 最佳）。OFF 表示不使用。不作用于单段生成",
-        "ko": "Character Guide(CREATE ▸ Motion Context 아래 스위치)가 적용하는 **Detail & Contrast** 강도입니다. 음수일수록 디테일의 날카로움과 딱딱함을 억제합니다(측정상 −0.2가 최적). OFF면 적용하지 않습니다. 단일 생성에는 적용되지 않습니다"},
+        "en": "The strength of **Detail & Contrast** applied by Character Guide (the switch under CREATE ▸ Motion Context). More negative values soften over-sharp detail and harshness (−0.2 measured best). 0 disables it. Not applied to single generations",
+        "zh": "Character Guide（CREATE ▸ Motion Context 下方的开关）所使用的 **Detail & Contrast** 强度。数值越负，越能抑制细节过锐和生硬感（实测 −0.2 最佳）。0 表示不使用。不作用于单段生成",
+        "ko": "Character Guide(CREATE ▸ Motion Context 아래 스위치)가 적용하는 **Detail & Contrast** 강도입니다. 음수일수록 디테일의 날카로움과 딱딱함을 억제합니다(측정상 −0.2가 최적). 0이면 적용하지 않습니다. 단일 생성에는 적용되지 않습니다"},
     "🧑 Character Guide: 自己参照＋明るさ合わせ＋Detail {v0}": {
         "en": "🧑 Character Guide: self-reference + brightness matching + Detail {v0}",
         "zh": "🧑 Character Guide：自参考＋亮度对齐＋Detail {v0}", "ko": "🧑 Character Guide: 자기 참조＋밝기 맞춤＋Detail {v0}"},
@@ -98,13 +98,13 @@ CSS = """
 }
 #cg-on span { white-space: normal !important; line-height: 1.5 !important; }
 #cg-on { padding-top: 8px !important; margin-top: 0 !important; }
+/* 並びはドラフトモード（#t2i-fast）と同じ: 左にチェック → 文字 → ？（1.0.1 利用者指定） */
 #cg-on label {
-    display: flex !important; width: 100% !important;
-    flex-direction: row-reverse !important;
-    justify-content: space-between !important; align-items: center !important;
+    display: flex !important; flex-direction: row !important; justify-content: flex-start !important;
+    align-items: center !important; gap: 8px !important; white-space: nowrap !important;
 }
 #cg-on input[type="checkbox"] {
-    accent-color: var(--h3-accent) !important; flex: 0 0 auto !important; margin: 0 0 0 10px !important;
+    accent-color: var(--h3-accent) !important; flex: 0 0 auto !important; margin: 0 !important;
 }
 /* 基準: SYSTEM の「R2V 長尺の Turbo」の箱（#rlt-card / #rlt-title / #rlt-dd） */
 #cgd-card { margin-top: 16px !important; padding: 12px 14px !important; }
@@ -113,14 +113,15 @@ CSS = """
     color: var(--h3-accent-2) !important;
     letter-spacing: 0.16em !important; font-weight: 700 !important;
 }
-#cgd-dd { margin: 0 !important; }
-#cgd-dd .container input, #cgd-dd .container .wrap-inner, #cgd-dd input {
-    color: var(--h3-text) !important; font-size: 13px !important; letter-spacing: 0 !important;
-}
-#cgd-dd [data-testid="block-info"], #cgd-dd > label > span:first-child {
+/* スライダー: ラベルは #rlt-dd のラベル、数字の欄は値と同じ 13px・--h3-text、目盛りは #seg-len と同じ */
+#cgd-sl { margin: 0 !important; }
+#cgd-sl label, #cgd-sl label > span:first-child, #cgd-sl [data-testid="block-info"] {
     font-size: 12px !important; color: var(--h3-muted) !important;
-    letter-spacing: 0.04em !important; font-weight: 400 !important; margin-bottom: 8px !important;
+    letter-spacing: 0.04em !important; font-weight: 400 !important;
 }
+#cgd-sl input[type="number"] { color: var(--h3-text) !important; font-size: 13px !important; letter-spacing: 0 !important; }
+#cgd-sl .min-value, #cgd-sl .max-value,
+#cgd-sl .min_value, #cgd-sl .max_value { color: var(--h3-faint) !important; font-size: 11px !important; }
 """
 
 _ST = {"ctx": None, "ui": {}, "det": None, "det_err": ""}
@@ -148,7 +149,7 @@ def detail_k():
         v = float(_state().get("cg_detail", DETAIL_DEFAULT))
     except (TypeError, ValueError):
         v = DETAIL_DEFAULT
-    return v if any(abs(v - c) < 1e-6 for _l, c in DETAIL_CHOICES) else DETAIL_DEFAULT
+    return float(min(DETAIL_MAX, max(DETAIL_MIN, v)))
 
 
 def _save(key, v):
@@ -439,8 +440,8 @@ def build_slot(ctx, slot):
     elif slot == "system_cards":                                 # SYSTEM タブの箱の並びの最後
         with gr.Column(elem_classes=["panel", "sys-card"], elem_id="cgd-card"):
             gr.Markdown("#### Character Guide（長尺の顔と画づくりを保つ）", elem_id="cgd-title")
-            ui["dd"] = gr.Dropdown(choices=DETAIL_CHOICES, value=detail_k(), elem_id="cgd-dd",
-                                   label="Detail & Contrast の強さ")
+            ui["dd"] = gr.Slider(DETAIL_MIN, DETAIL_MAX, step=DETAIL_STEP, value=detail_k(), elem_id="cgd-sl",
+                                 label="Detail & Contrast の強さ")
             g["help_icon"](HELP_SYS, anchor="#cgd-title h4", elem_id="cgd-help")
 
 
@@ -449,4 +450,4 @@ def wire(ctx, comps):
     if "cb" in ui:
         ui["cb"].change(fn=_set_on, inputs=[ui["cb"]], outputs=None, queue=False, show_progress="hidden")
     if "dd" in ui:
-        ui["dd"].change(fn=_set_detail, inputs=[ui["dd"]], outputs=None, queue=False, show_progress="hidden")
+        ui["dd"].release(fn=_set_detail, inputs=[ui["dd"]], outputs=None, queue=False, show_progress="hidden")
