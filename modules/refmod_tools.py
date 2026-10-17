@@ -8,7 +8,8 @@ WebUI 本体（セル3）がコミット固定で読み込み、`setup` → `bui
 できること（WebUI ver1.7 #317 で本体に入れたものを、#321 でこちらへ移した）:
   ・RefMod の保存時に、プロンプト補助（Qwen3-VL）へ素材を見せて「変わらない見た目」と服を書かせ、メタに残す
   ・プロンプトの `<Subject k> is @refmod N.`（ラベルの直後が文の終わり）に見た目だけを自動で足す
-  ・`<Prompt N>`（`@prompt N`）を見た目＋服の全文に置き換える
+  ・`<Prompt N>`（`@character N`・`@chara N`・`@キャラ N`・`@prompt N`）を見た目＋服の全文に置き換える
+    （🆕 1.5.1 / 2026-10-17 利用者判断: キャラ指定の記法をこの意味に。本体が `<Prompt N>` にしてから渡す）
   ・FINDER で説明を生成・手直し・保存する
   ・🆕 1.1.0 FINDER の編集パネル（#331）: 種類（concept_type）・タグの書き換え、素材（bundle の members）の
     並べ替え・外す・ほかの RefMod から足す、Stack 動画のコマを消す、直前の 1 回を元に戻す
@@ -28,7 +29,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
@@ -67,21 +68,21 @@ _ST = {"ctx": None, "on_save": {"refs": DESC_ON_SAVE_DEFAULT, "builder": DESC_ON
 
 HELP = {
     "refmod": "保存時に**見た目の説明**を作っておくと（要プロンプト補助）、`<Subject 1> is @refmod 1.` のようにラベルで文を終えたとき、"
-              "見た目が自動で足されます。服も素材どおりにしたいときは **`@prompt 1`**（見た目＋服）と書きます。説明は FINDER で直せます。",
+              "見た目が自動で足されます。服も素材どおりにしたいときは **`@character 1`**（見た目＋服。`@chara 1`・`@キャラ 1` も可）と書きます。説明は FINDER で直せます。",
 }
 
 I18N = {
     HELP["refmod"]: {
         "en": "If you write an **appearance description** when saving (needs Prompt Assist), a sentence that ends with the label, "
               "like `<Subject 1> is @refmod 1.`, gets the appearance added automatically. To keep the original outfit too, "
-              "write **`@prompt 1`** (appearance + outfit). Descriptions can be edited in FINDER.",
+              "write **`@character 1`** (appearance + outfit; `@chara 1` / `@キャラ 1` also work). Descriptions can be edited in FINDER.",
         "zh": "保存时生成**外貌描述**（需要提示词助手）后，像 `<Subject 1> is @refmod 1.` 这样以标签结束句子时，会自动补上外貌。"
-              "想连服装也保持原样时，写 **`@prompt 1`**（外貌＋服装）。描述可在 FINDER 中修改。",
+              "想连服装也保持原样时，写 **`@character 1`**（外貌＋服装；`@chara 1`・`@キャラ 1` 也可）。描述可在 FINDER 中修改。",
         "ko": "저장할 때 **외모 설명**을 만들어 두면(프롬프트 보조 필요) `<Subject 1> is @refmod 1.`처럼 라벨로 문장을 끝냈을 때 "
-              "외모가 자동으로 붙습니다. 의상도 소재 그대로 하고 싶으면 **`@prompt 1`**(외모＋의상)이라고 씁니다. 설명은 FINDER에서 고칠 수 있습니다."},
+              "외모가 자동으로 붙습니다. 의상도 소재 그대로 하고 싶으면 **`@character 1`**(외모＋의상. `@chara 1`・`@キャラ 1`도 가능)이라고 씁니다. 설명은 FINDER에서 고칠 수 있습니다."},
     "RefMod の説明を作れませんでした: {v0}": {"en": "Could not write the RefMod description: {v0}", "zh": "无法生成 RefMod 的描述：{v0}", "ko": "RefMod 설명을 만들지 못했습니다: {v0}"},
     "ℹ️ 見た目の説明は付けませんでした（{v0}）": {"en": "ℹ️ No appearance description was added ({v0})", "zh": "ℹ️ 未添加外貌描述（{v0}）", "ko": "ℹ️ 외모 설명은 붙이지 않았습니다 ({v0})"},
-    "⚠️ <Prompt {v0}> に当たる説明がありません（RefMod {v0} が無いか、説明が付いていません）。そのまま残しました": {"en": "⚠️ No description for <Prompt {v0}> (RefMod {v0} is missing or has no description). Left as is", "zh": "⚠️ 没有与 <Prompt {v0}> 对应的描述（RefMod {v0} 不存在或没有描述）。已原样保留", "ko": "⚠️ <Prompt {v0}>에 해당하는 설명이 없습니다 (RefMod {v0}가 없거나 설명이 붙어 있지 않음). 그대로 두었습니다"},
+    "⚠️ @character {v0} に当たる説明がありません（RefMod {v0} が無いか、説明が付いていません）。そのまま残しました": {"en": "⚠️ No description for @character {v0} (RefMod {v0} is missing or has no description). Left as is", "zh": "⚠️ 没有与 @character {v0} 对应的描述（RefMod {v0} 不存在或没有描述）。已原样保留", "ko": "⚠️ @character {v0}에 해당하는 설명이 없습니다 (RefMod {v0}가 없거나 설명이 붙어 있지 않음). 그대로 두었습니다"},
     "⚠️ RefMod の名前の語が入っています（{v0}）。人名なら消してください": {"en": "⚠️ The text contains words from the RefMod name ({v0}). Remove them if they are a person's name", "zh": "⚠️ 文中含有 RefMod 名称中的词（{v0}）。如果是人名请删除", "ko": "⚠️ RefMod 이름의 단어가 들어 있습니다 ({v0}). 사람 이름이면 지워 주세요"},
     "⚠️ 書かない約束の語が入っています（{v0}）。手で直してください": {"en": "⚠️ The text contains words it should not use ({v0}). Please fix it by hand", "zh": "⚠️ 文中含有不应使用的词（{v0}）。请手动修改", "ko": "⚠️ 쓰지 않기로 한 단어가 들어 있습니다 ({v0}). 직접 고쳐 주세요"},
     "⚠️ 見た目の行が書かれませんでした。もう一度押すか、手で書いてください": {"en": "⚠️ No appearance line was written. Press again or write it by hand", "zh": "⚠️ 没有写出外貌一行。请再按一次或手动填写", "ko": "⚠️ 외모 줄이 작성되지 않았습니다. 다시 누르거나 직접 써 주세요"},
@@ -99,7 +100,7 @@ I18N = {
     "⏳ もう書いています": {"en": "⏳ Already writing", "zh": "⏳ 正在撰写中", "ko": "⏳ 이미 쓰는 중입니다"},
     "⏳ 生成中は使えません。終わってからもう一度押してください": {"en": "⏳ Not available while generating. Press again when it finishes", "zh": "⏳ 生成过程中无法使用。完成后请再按一次", "ko": "⏳ 생성 중에는 쓸 수 없습니다. 끝난 뒤 다시 눌러 주세요"},
     "❌ 書けませんでした: {v0}": {"en": "❌ Could not write it: {v0}", "zh": "❌ 无法撰写：{v0}", "ko": "❌ 쓰지 못했습니다: {v0}"},
-    "服（@prompt で使う。自動では足さない）": {"en": "Outfit (used by @prompt; not added automatically)", "zh": "服装（用于 @prompt，不会自动添加）", "ko": "의상 (@prompt에서 사용. 자동으로는 붙이지 않음)"},
+    "服（@character で使う。自動では足さない）": {"en": "Outfit (used by @character; not added automatically)", "zh": "服装（用于 @character，不会自动添加）", "ko": "의상 (@character에서 사용. 자동으로는 붙이지 않음)"},
     "見た目の説明も作る": {"en": "Also write an appearance description", "zh": "同时生成外貌描述", "ko": "외모 설명도 만들기"},
     "見た目の説明を自動で足す": {"en": "Add the appearance description automatically", "zh": "自动添加外貌描述", "ko": "외모 설명을 자동으로 붙이기"},
     "見た目（髪・目・顔・目印）": {"en": "Appearance (hair, eyes, face, marks)", "zh": "外貌（头发、眼睛、脸、特征）", "ko": "외모 (머리·눈·얼굴·특징)"},
@@ -336,7 +337,7 @@ def desc_get(name):
 
 
 def desc_full(d):
-    """`@prompt N` に入れる全文（見た目＋服）"""
+    """`@character N`（＝`<Prompt N>`）に入れる全文（見た目＋服）"""
     ap, of = str(d.get("appearance") or "").strip().rstrip("."), str(d.get("outfit") or "").strip().rstrip(".")
     return f"{ap}, wearing {of}" if (ap and of) else (ap or (f"wearing {of}" if of else ""))
 
@@ -1357,7 +1358,7 @@ def hook_prompt(t, refs_by_kind=None):
         return full
     t = _PROMPT_TAG_RE.sub(_psub, t)
     for n in dict.fromkeys(nodesc):
-        notes.append(_T('⚠️ <Prompt {v0}> に当たる説明がありません（RefMod {v0} が無いか、説明が付いていません）。そのまま残しました',
+        notes.append(_T('⚠️ @character {v0} に当たる説明がありません（RefMod {v0} が無いか、説明が付いていません）。そのまま残しました',
                         v0=f'{n}'))
     return t, notes
 
@@ -1407,7 +1408,7 @@ def build_slot(ctx, slot):
         with gr.Tabs(elem_id="rmm-ed-tabs"):
             with gr.Tab("見た目・服", id="rmm-ed-t-desc", elem_id="rmm-ed-t-desc"):
                 ui["ap"] = gr.Textbox(label="見た目（髪・目・顔・目印）", lines=7, elem_id="rmm-desc-ap")
-                ui["of"] = gr.Textbox(label="服（@prompt で使う。自動では足さない）", lines=4, elem_id="rmm-desc-of")
+                ui["of"] = gr.Textbox(label="服（@character で使う。自動では足さない）", lines=4, elem_id="rmm-desc-of")
                 with gr.Row(elem_id="rmm-desc-row"):
                     ui["gen"] = gr.Button("✍️ 説明を生成", min_width=60, elem_id="rmm-desc-gen-btn", elem_classes=["rmm-ed-btn"])
                     ui["save"] = gr.Button("💾 説明を保存", min_width=60, elem_id="rmm-desc-save-btn", elem_classes=["rmm-ed-btn"])
