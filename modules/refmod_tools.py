@@ -9,7 +9,7 @@ WebUI 本体（セル3）がコミット固定で読み込み、`setup` → `bui
   ・RefMod の保存時に、プロンプト補助（Qwen3-VL）へ素材を見せて「変わらない見た目」と服を書かせ、メタに残す
   ・プロンプトの `<Subject k> is @refmod N.`（ラベルの直後が文の終わり）に見た目だけを自動で足す
   ・`<Prompt N>`（`@character N`・`@chara N`・`@キャラ N`・`@prompt N`）を見た目＋服の全文に置き換える
-    （🆕 1.5.1 / 2026-10-17 利用者判断: キャラ指定の記法をこの意味に。本体が `<Prompt N>` にしてから渡す）
+    （🆕 1.5.1 / 2026-10-17 利用者判断: キャラ指定の記法をこの意味に。1.5.2: 本体が `<Chara N>` を `<RefMod N>: <Prompt N>`＝ラベル＋説明にしてから渡す）
   ・FINDER で説明を生成・手直し・保存する
   ・🆕 1.1.0 FINDER の編集パネル（#331）: 種類（concept_type）・タグの書き換え、素材（bundle の members）の
     並べ替え・外す・ほかの RefMod から足す、Stack 動画のコマを消す、直前の 1 回を元に戻す
@@ -29,7 +29,7 @@ import os
 import re
 
 NAME = "refmod_tools"
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 API = 1                                   # 本体の MODULE_API と一致しないと読み込まれない
 SLOTS = ("refmod_save_opts", "rmb_opts", "refmod_bar2", "rmm_status")
 
@@ -68,18 +68,18 @@ _ST = {"ctx": None, "on_save": {"refs": DESC_ON_SAVE_DEFAULT, "builder": DESC_ON
 
 HELP = {
     "refmod": "保存時に**見た目の説明**を作っておくと（要プロンプト補助）、`<Subject 1> is @refmod 1.` のようにラベルで文を終えたとき、"
-              "見た目が自動で足されます。服も素材どおりにしたいときは **`@character 1`**（見た目＋服。`@chara 1`・`@キャラ 1` も可）と書きます。説明は FINDER で直せます。",
+              "見た目が自動で足されます。服も素材どおりにしたいときは **`<Subject 1> is @character 1.`**（ラベル＋見た目＋服。`@chara 1`・`@キャラ 1` も可）と書きます。説明は FINDER で直せます。",
 }
 
 I18N = {
     HELP["refmod"]: {
         "en": "If you write an **appearance description** when saving (needs Prompt Assist), a sentence that ends with the label, "
               "like `<Subject 1> is @refmod 1.`, gets the appearance added automatically. To keep the original outfit too, "
-              "write **`@character 1`** (appearance + outfit; `@chara 1` / `@キャラ 1` also work). Descriptions can be edited in FINDER.",
+              "write **`<Subject 1> is @character 1.`** (label + appearance + outfit; `@chara 1` / `@キャラ 1` also work). Descriptions can be edited in FINDER.",
         "zh": "保存时生成**外貌描述**（需要提示词助手）后，像 `<Subject 1> is @refmod 1.` 这样以标签结束句子时，会自动补上外貌。"
-              "想连服装也保持原样时，写 **`@character 1`**（外貌＋服装；`@chara 1`・`@キャラ 1` 也可）。描述可在 FINDER 中修改。",
+              "想连服装也保持原样时，写 **`<Subject 1> is @character 1.`**（标签＋外貌＋服装；`@chara 1`・`@キャラ 1` 也可）。描述可在 FINDER 中修改。",
         "ko": "저장할 때 **외모 설명**을 만들어 두면(프롬프트 보조 필요) `<Subject 1> is @refmod 1.`처럼 라벨로 문장을 끝냈을 때 "
-              "외모가 자동으로 붙습니다. 의상도 소재 그대로 하고 싶으면 **`@character 1`**(외모＋의상. `@chara 1`・`@キャラ 1`도 가능)이라고 씁니다. 설명은 FINDER에서 고칠 수 있습니다."},
+              "외모가 자동으로 붙습니다. 의상도 소재 그대로 하고 싶으면 **`<Subject 1> is @character 1.`**(라벨＋외모＋의상. `@chara 1`・`@キャラ 1`도 가능)이라고 씁니다. 설명은 FINDER에서 고칠 수 있습니다."},
     "RefMod の説明を作れませんでした: {v0}": {"en": "Could not write the RefMod description: {v0}", "zh": "无法生成 RefMod 的描述：{v0}", "ko": "RefMod 설명을 만들지 못했습니다: {v0}"},
     "ℹ️ 見た目の説明は付けませんでした（{v0}）": {"en": "ℹ️ No appearance description was added ({v0})", "zh": "ℹ️ 未添加外貌描述（{v0}）", "ko": "ℹ️ 외모 설명은 붙이지 않았습니다 ({v0})"},
     "⚠️ @character {v0} に当たる説明がありません（RefMod {v0} が無いか、説明が付いていません）。そのまま残しました": {"en": "⚠️ No description for @character {v0} (RefMod {v0} is missing or has no description). Left as is", "zh": "⚠️ 没有与 @character {v0} 对应的描述（RefMod {v0} 不存在或没有描述）。已原样保留", "ko": "⚠️ @character {v0}에 해당하는 설명이 없습니다 (RefMod {v0}가 없거나 설명이 붙어 있지 않음). 그대로 두었습니다"},

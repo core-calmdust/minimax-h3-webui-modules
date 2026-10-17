@@ -8,21 +8,21 @@
    "code": "en",
    "name": "English",
    "file": "i18n/cell3/en.json",
-   "sha256": "634a0f8ebd89f287fe601b8e2d7ca83573a4b41ff6285de2b58bd4c797f64abf",
+   "sha256": "fec6b6ee5a62ab0508878316c9f9e89ecc24722fdefa1e562ea2a4060c517977",
    "entries": 839
   },
   {
    "code": "zh",
    "name": "中文",
    "file": "i18n/cell3/zh.json",
-   "sha256": "2989c9abef930623bd1eecb4975670b1fb3f34d3a5da428f6c3f8f36584f3f14",
+   "sha256": "ffbbf3e0d573b7cb8f758282da7f6acb00845cec70319e41b31085fe6a7501ec",
    "entries": 839
   },
   {
    "code": "ko",
    "name": "한국어",
    "file": "i18n/cell3/ko.json",
-   "sha256": "4bc58f13723ce0bdd8df8fc8e40ff9441eb68e6b42775be29682e5c013628e28",
+   "sha256": "5d82a72f9ae22fcda1bdd8703785b802f179ea47b16456251fe63d1c58995514",
    "entries": 839
   }
  ]
