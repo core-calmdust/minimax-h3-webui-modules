@@ -30,6 +30,17 @@
         if (d.style[k] !== c[k]) d.style.setProperty(k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }), c[k], 'important');
       });
     });
+    /* #362 「高速化」の文字の高さをドラフトモードの文字にそろえる（中心どうしの差だけ縦にずらす） */
+    var lb = document.querySelector('#accel-lbl .accel-lbl-t');
+    if (lb && src.offsetParent) {
+      var cur = parseFloat(lb.getAttribute('data-dy') || '0');
+      var sr = src.getBoundingClientRect(), dr = lb.getBoundingClientRect();
+      var dy = Math.round((sr.top + sr.height / 2) - (dr.top + dr.height / 2) + cur);
+      if (Math.abs(dy - cur) >= 1) {
+        lb.style.transform = 'translateY(' + dy + 'px)';
+        lb.setAttribute('data-dy', String(dy));
+      }
+    }
   }
   if (!window.__h3AccelSync) { window.__h3AccelSync = setInterval(syncAccel, 800); }
   syncAccel();
