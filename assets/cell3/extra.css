@@ -150,3 +150,8 @@
 #tstr-panel #accel-dd .wrap-inner { position: relative !important; }
 #tstr-panel #accel-dd input { padding-right: 18px !important; text-overflow: clip !important; }
 #tstr-panel #accel-dd .icon-wrap { right: 0 !important; left: auto !important; }
+
+/* 🆕 #391 RefMod の箱の Strength: 見出しの字（左の「検索」「トークン上限」と同じ高さ＝下端そろえ）に数値欄の上下中央を合わせる
+   （利用者指摘: 字と数値欄の高さが合っていない）。mock_ui 実測: 見出しの中心 44.4px／数値欄の中心 39.0px → 5.4px 下げると一致。
+   position: relative なので箱・バー・ほかの部品の位置は動かない */
+#refmod-str .head .tab-like-container { position: relative !important; top: 5.4px !important; }
