@@ -15,6 +15,7 @@ Spark の計算で例外が出たら、その生成の残りは元の処理器�
 もう 1 つの役目: Triton の組み立て結果（~/.triton/cache）を Google ドライブに控える（WebUI ver1.7 セル166:
 新しい寸法の初回の待ち約 17 秒のうち約 16 秒が Triton の JIT、1 寸法で約 20MB）。起動時に Drive → ローカルへ戻し、
 生成のたびに新しくできた分だけ Drive へ写す（`accel_sync`）。Drive と連携していなければ何もしない。
+1.0.1: 使った控え（Triton が読んだ・書いたもの）は Drive 側の日付を新しくする＝上限を超えたら**使われていない順**に消す。
 """
 import contextlib
 import dataclasses
@@ -27,7 +28,7 @@ import sys
 import threading
 
 NAME = "spark_attn"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 API = 1
 SLOTS = ()
 CSS = ""
@@ -40,7 +41,7 @@ TOPK = 0.10                 # 以後の密度
 EARLY_TOPK = 0.20           # Fast Spark の最初の 1 回
 MAX_EVALS = 100000          # Spark の「回数の上限」。歩数は Express・σ裾などで変わるので数えず、大きく取る
 TRITON_DRIVE_SUB = "triton_cache"
-TRITON_DRIVE_CAP_MB = 500   # Drive の控えの上限（超えたら古いものから消す）
+TRITON_DRIVE_CAP_MB = 500   # Drive の控えの上限（超えたら**最後に使った日が古いもの**から消す＝1.0.1）
 
 I18N = {
     "⚙️ Spark を準備しています（初回だけ 1 分ほどかかります）": {"en": "⚙️ Preparing Spark (first time only, about a minute)", "zh": "⚙️ 正在准备 Spark（仅首次，约 1 分钟）", "ko": "⚙️ Spark를 준비하고 있습니다(처음 한 번만, 1분 정도)"},
@@ -52,7 +53,8 @@ I18N = {
 }
 
 _CTX = {"g": None}
-_ST = {"hsa": None, "err": "", "lock": threading.Lock(), "sync": None}
+_ST = {"hsa": None, "err": "", "lock": threading.Lock(), "sync": None, "track": False}
+_USED = set()               # このセッションで Triton が読んだ・書いた控えの鍵（＝フォルダ名）
 
 
 def _g():
@@ -132,6 +134,51 @@ def triton_restore():
     threading.Thread(target=_copy_entries, args=(drv, _triton_local()), daemon=True).start()
 
 
+def _track_triton():
+    """Triton の控えの読み書きを数える（1.0.1）。使った控えは Drive 側の日付を新しくし、消すのは使われていないものから。
+    Triton の FileCacheManager の get_file / get_group / put / put_group を包むだけ（中身は変えない・冪等）"""
+    if _ST["track"]:
+        return
+    try:
+        from triton.runtime import cache as _tc
+        cls = _tc.FileCacheManager
+        for nm in ("get_file", "get_group", "put", "put_group"):
+            f = getattr(cls, nm, None)
+            if f is None or getattr(f, "_h3_track", False):
+                continue
+
+            def _wrap(fn):
+                def w(self, *a, **kw):
+                    r = fn(self, *a, **kw)
+                    try:
+                        if r is not None and getattr(self, "key", None):
+                            _USED.add(str(self.key))
+                    except Exception:                            # noqa: BLE001
+                        pass
+                    return r
+                w._h3_track = True
+                return w
+            setattr(cls, nm, _wrap(f))
+        _ST["track"] = True
+    except Exception:                                            # noqa: BLE001
+        pass                                                     # 数えられなくても動作は変わらない（作った順で消えるだけ）
+
+
+def _touch_used(drv):
+    """このセッションで使った控えの Drive 側の日付を今にする → 戻り値は日付を直した件数"""
+    n = 0
+    for key in list(_USED):
+        d = os.path.join(drv, key)
+        try:
+            if os.path.isdir(d):
+                os.utime(d, None)
+                n += 1
+        except OSError:
+            pass
+    _USED.clear()
+    return n
+
+
 def _new_local_entries(since):
     loc = _triton_local()
     if not os.path.isdir(loc):
@@ -151,9 +198,11 @@ def accel_sync(t0):
     → 新しくできた件数（0 なら、この寸法の部品は既にそろっていた）"""
     n = _new_local_entries(t0)
     drv = _triton_drive()
-    if n and drv:
+    if drv and (n or _USED):
         def _job():
-            _copy_entries(_triton_local(), drv, since=t0)
+            if n:
+                _copy_entries(_triton_local(), drv, since=t0)
+            _touch_used(drv)                                     # 使ったものを新しく → 消すのは使われていないものから
             _prune(drv, TRITON_DRIVE_CAP_MB)
         th = threading.Thread(target=_job, daemon=True)
         th.start()
@@ -221,6 +270,7 @@ def spark_ctx(mode):
     box = {"ok": False, "err": "", "note": "", "mode": mode}
     try:
         hsa = _prepare()
+        _track_triton()
         tr = _g()["active_transformer"]()
     except Exception as e:                                       # noqa: BLE001
         box["err"] = f"{type(e).__name__}: {str(e)[:200]}"
