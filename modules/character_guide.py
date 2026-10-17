@@ -21,7 +21,7 @@ import os
 import numpy as np
 
 NAME = "character_guide"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 API = 1
 SLOTS = ("motion_group", "system_cards")
 
@@ -140,8 +140,14 @@ def _state():
     return _g()["_UI_STATE"]
 
 
+# 🔴 2026-10-17 既定を OFF にする（利用者の実機: 自己参照の継ぎ目で顔を作り直したのが分かり、3 本目の途中で
+#    参照に選んだコマの場面へ背景ごと飛んだ。Character Guide なしの T2V のほうがはるかに良い、との判断）。
+#    以前の既定 ON のまま保存された値を拾わないよう、保存のキーを cg_on → cg_enable に替える
+ON_KEY = "cg_enable"
+
+
 def enabled():
-    return bool(_state().get("cg_on", True))
+    return bool(_state().get(ON_KEY, False))
 
 
 def detail_k():
@@ -163,7 +169,7 @@ def _save(key, v):
 
 
 def _set_on(v):
-    _save("cg_on", bool(v))
+    _save(ON_KEY, bool(v))
     return None
 
 
