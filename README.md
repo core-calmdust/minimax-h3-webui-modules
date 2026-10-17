@@ -17,6 +17,7 @@ on their own.
 |---|---|---|
 | `modules/refmod_tools.py` | WebUI ver1.7 | RefMod appearance descriptions: written by Prompt Assist on save / in FINDER, added to `<Subject k> is @refmod N.` automatically, `@prompt N` for the full text; FINDER STATUS: tabs for appearance / outfit, sources (add from another RefMod, one-step undo) and type / tags; sources and Stack frames edited directly in STATUS (click to select, 🗑 or drag out to remove, drop images / videos / audio to add with a progress bar, drag to reorder; long Stacks scroll in two rows with frame thumbnails made progressively) |
 | `modules/face_refiner.py` | WebUI ver1.7 | Face Refiner: tracks faces (OpenCV Zoo YuNet), redraws the face clip with MiniMax H3 and pastes it back (CREATE option and UPSCALE ▸ Face Refiner). The UI stays in the core |
+| `modules/spark_attn.py` | WebUI ver1.7 | Speed-up "Spark (quality first)" / "Fast Spark (balanced)": fetches Spark-H3 (zechengtang/Spark-H3, Apache-2.0) at a pinned commit at first use and runs the generation with its block-sparse attention; keeps the Triton kernel cache on Google Drive (only when Drive is connected). The selector stays in the core |
 
 ## Translations (`i18n/`)
 
@@ -61,7 +62,7 @@ Each module is a Python file under `modules/` that exposes:
 Hooks: `prompt_pre(text, refs) -> (text, warnings)` · `refmod_after_save(name, items, paths, source) -> str` ·
 `refmod_detail_rows(name, meta) -> [(label, value)]`.
 Slots: `refmod_save_opts` · `rmb_opts` · `refmod_bar2` · `rmm_right`.
-Provided functions: `face_refine_apply` · `face_refine_still_img` · `do_video_refine` (face_refiner).
+Provided functions: `face_refine_apply` · `face_refine_still_img` · `do_video_refine` (face_refiner) · `spark_ctx` · `accel_sync` · `accel_first_note` (spark_attn).
 
 Modules must not copy code from the core.
 
@@ -90,4 +91,5 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 |---|---|
 | `modules/refmod_tools.py` | RefMod の見た目の説明（保存時・FINDER でプロンプト補助が書く／`<Subject k> is @refmod N.` に自動で足す／`@prompt N` で全文）／FINDER の STATUS: 見た目・服／素材（ほかの RefMod から足す・元に戻す）／種類・タグのタブ、素材と Stack のコマは STATUS の上で直接（クリックで選ぶ・🗑 か枠外へドラッグで消す・画像／動画／音声のドロップで足す〔進み具合つき〕・ドラッグで並べ替え・長い Stack は 2 段でスクロール、コマの絵は少しずつ作る） |
 | `modules/face_refiner.py` | Face Refiner（YuNet で顔を追跡 → H3 で顔のクリップを描き直して貼り戻す。CREATE の顔補正・UPSCALE ▸ Face Refiner。UI は本体） |
+| `modules/spark_attn.py` | 高速化「Spark（画質優先）」「Fast Spark（バランス）」（初めて使うときに Spark-H3〔zechengtang/Spark-H3、Apache-2.0〕を版固定で取り寄せ、その疎 attention で生成する／Triton の組み立て結果を Google ドライブに控える〔Drive 連携時のみ〕。プルダウンは本体） |
 - モデルの重みは置きません。非公式のコミュニティ製で、MiniMax とは関係ありません。

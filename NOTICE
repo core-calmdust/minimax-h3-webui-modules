@@ -12,3 +12,8 @@ This is an unofficial, community-made project. It is not affiliated with,
 endorsed by, or supported by MiniMax. No model weights are included.
 MiniMax H3 is licensed under the MiniMax H3 Community License Agreement,
 Copyright (c) 2026 MiniMax. All Rights Reserved.
+
+modules/spark_attn.py downloads and imports Spark-H3 (https://github.com/zechengtang/Spark-H3,
+Apache License 2.0) at a pinned commit at run time; its code is not copied into this repository.
+Spark-H3's bundled sol_attn contains files derived from FlashAttention (BSD-3-Clause) and from
+NVIDIA cuDNN Frontend (Apache License 2.0); see sol_attn/THIRD_PARTY_NOTICES.md in that repository.

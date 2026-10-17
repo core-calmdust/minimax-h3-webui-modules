@@ -127,3 +127,21 @@
 }
 #lora-icon input[type="range"] { accent-color: var(--h3-accent) !important; }
 #lora-panel #lora-gallery .grid-container { grid-template-columns: repeat(var(--lora-cols, 5), 1fr) !important; }
+/* 🆕 ver1.7 #359 高速化（SLA / Fast Spark / Spark / OFF）: ドラフトモードの横に「高速化」＋プルダウン */
+#draft-sol-row { justify-content: flex-start !important; }
+#draft-sol-row > .form { flex: 0 0 auto !important; width: auto !important; }
+#draft-sol-row > #accel-lbl { flex: 0 0 auto !important; width: auto !important; margin-left: 18px !important;
+                              padding: 0 !important; min-height: 0 !important; height: auto !important; }
+#accel-lbl .accel-lbl-t { font-size: 14px; letter-spacing: 0.48px; color: var(--body-text-color);
+                          white-space: nowrap; line-height: 20px; display: block; }
+#draft-sol-row > #accel-dd { flex: 0 0 200px !important; width: 200px !important; margin: 0 !important; }
+#accel-lbl .html-container, #accel-lbl .prose { padding: 0 !important; margin: 0 !important; }
+#tstr-panel #accel-dd .wrap:not(.default) {
+    border: 1px solid var(--border-color-primary) !important; border-radius: 4px !important;
+    background: var(--input-background-fill) !important;
+    padding: 0 4px 0 8px !important; min-height: 0 !important;
+}
+#tstr-panel #accel-dd .wrap-inner, #tstr-panel #accel-dd .secondary-wrap {
+    padding: 0 !important; min-height: 0 !important; height: 26px !important; align-items: center !important; }
+#tstr-panel #accel-dd input { font-size: 14px !important; letter-spacing: 0.48px !important;
+                              height: 26px !important; padding: 0 !important; }
