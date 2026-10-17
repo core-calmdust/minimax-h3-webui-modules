@@ -260,9 +260,39 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
    6. CREATE: 生成モード / 基本設定
    ============================================================ */
 #mode-row { margin: 0 !important; padding: 0 !important; }
+/* 🆕 2026-10-17 生成モード（T2V / I2V / R2V / T2I / R2I / CharSheet）を**タブの見た目**にする（利用者: 他と統一）。
+   中身は gr.Radio のまま（値・.change はそのまま）で、見た目だけ下段の #create-tabs のタブに合わせる。
+   基準 #create-tabs [role=tab]（Gradio 6.27 実測）: 高さ 32・左右 16px・地と枠なし・11px・0.16em・--h3-muted、
+   選んだタブは --h3-accent-text ＋下に 2px の --h3-accent、並びの下に 1px の線（Gradio の --border-color-primary）。
+   ⚠️ 線の色だけは Gradio のタブと同じ変数を使う（--h3-border は #e2e2e8 で、タブの線 #e4e4e7 と 1 段ずれる）。
+   幅が足りないときは折り返す（線は並び全体の下に 1 本） */
 #mode-row .wrap, #mode-row fieldset > div {
     display: flex !important; flex-wrap: wrap !important;
-    justify-content: flex-start !important; gap: 8px !important;
+    justify-content: flex-start !important; gap: 0 !important;
+    box-shadow: inset 0 -1px 0 var(--border-color-primary) !important;
+}
+#mode-prompt-panel #mode-row label {
+    position: relative !important; display: flex !important; align-items: center !important;
+    height: 32px !important; padding: 0 16px !important; margin: 0 !important;
+    background: transparent !important; border: 0 !important; border-radius: 0 !important;
+    box-shadow: none !important; cursor: pointer !important;
+}
+#mode-prompt-panel #mode-row label, #mode-prompt-panel #mode-row label span {
+    color: var(--h3-muted) !important; font-size: 11px !important;
+    letter-spacing: 0.16em !important; font-weight: 400 !important; line-height: 16.5px !important;
+}
+#mode-prompt-panel #mode-row label span { margin: 0 !important; padding: 0 !important; }
+#mode-prompt-panel #mode-row label.selected, #mode-prompt-panel #mode-row label.selected span { color: var(--h3-accent-text) !important; }
+#mode-prompt-panel #mode-row label.selected::after {
+    content: "" !important; position: absolute !important; left: 0 !important; right: 0 !important;
+    bottom: 0 !important; height: 2px !important; background: var(--h3-accent) !important;
+}
+/* ホバーはタブと同じ地（Gradio のタブの :hover と同じ変数） */
+#mode-prompt-panel #mode-row label:hover { background: var(--background-fill-secondary) !important; }
+/* 丸いラジオは見せない（キーボード操作のために要素は残す） */
+#mode-prompt-panel #mode-row label input[type="radio"] {
+    position: absolute !important; opacity: 0 !important; width: 1px !important; height: 1px !important;
+    margin: 0 !important; pointer-events: none !important;
 }
 #mode-prompt-panel > div:first-child { margin-bottom: 8px !important; }
 
@@ -746,6 +776,10 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
 /* 全画面では「PREVIEW」の見出しとダウンロードのボタンも隠す（映像だけを見せる） */
 #lib-preview-box:fullscreen [data-testid="block-label"],
 #lib-preview-box:fullscreen a[download] { display: none !important; }
+/* 全画面でもシークバー・再生ボタンを出す。Gradio 6.27 の VideoPreview は「:fullscreen の中の .controls」を
+   display:none にし、<video> 自身が全画面のときだけ標準のコントロールに切り替える。こちらは箱を全画面にするので
+   どちらも出ない → Gradio のコントロールを戻す（下端に重なり、ホバーで出る既定の動きはそのまま） */
+#lib-preview-box:fullscreen .controls { display: block !important; }
 
 /* ---- ？ヘルプアイコン（説明が要る見出しの真横。ホバー / フォーカスでヒント）---- */
 /* ⚠️ アイコンの置き場所は **JS が見出しの中へ移す**（HELP_JS）。gr.HTML の箱自体は隠す。
