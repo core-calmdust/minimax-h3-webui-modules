@@ -30,11 +30,24 @@
         if (d.style[k] !== c[k]) d.style.setProperty(k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }), c[k], 'important');
       });
     });
+    /* #363 「高速化」の ？ をドラフトモードの ？ と同じ見た目に（HTML の箱は prose の書式が乗るので、計算後の値を写す） */
+    var hs = document.querySelector('#t2i-fast .h3-help'), hd = document.querySelector('#accel-lbl .h3-help');
+    if (hs && hd) {
+      var hc = getComputedStyle(hs);
+      ['color', 'fontSize', 'fontWeight', 'fontFamily', 'letterSpacing', 'lineHeight', 'width', 'height',
+       'borderTopColor', 'borderTopWidth', 'backgroundColor', 'marginLeft'].forEach(function (k) {
+        var css = k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); });
+        if (k === 'borderTopColor') css = 'border-color';
+        if (k === 'borderTopWidth') css = 'border-width';
+        if (hd.style.getPropertyValue(css) !== hc[k]) hd.style.setProperty(css, hc[k], 'important');
+      });
+    }
     /* #362 「高速化」の文字の高さをドラフトモードの文字にそろえる（中心どうしの差だけ縦にずらす） */
     var lb = document.querySelector('#accel-lbl .accel-lbl-t');
     if (lb && src.offsetParent) {
       var cur = parseFloat(lb.getAttribute('data-dy') || '0');
-      var sr = src.getBoundingClientRect(), dr = lb.getBoundingClientRect();
+      /* ？ が両方にあれば ？ どうし（同じ大きさなので文字の並びも揃う）、無ければ文字の箱どうし */
+      var sr = (hs && hd ? hs : src).getBoundingClientRect(), dr = (hs && hd ? hd : lb).getBoundingClientRect();
       var dy = Math.round((sr.top + sr.height / 2) - (dr.top + dr.height / 2) + cur);
       if (Math.abs(dy - cur) >= 1) {
         lb.style.transform = 'translateY(' + dy + 'px)';

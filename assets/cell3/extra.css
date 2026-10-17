@@ -135,7 +135,7 @@
                               padding: 0 !important; min-height: 0 !important; height: auto !important; }
 #accel-lbl .html-container, #accel-lbl .prose { padding: 0 !important; margin: 0 !important; }
 #accel-lbl .accel-lbl-t { font-size: inherit; font-weight: inherit; color: inherit; letter-spacing: inherit;
-                          white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+                          white-space: nowrap; display: inline-flex; align-items: center; gap: 0; }   /* ？ との間はアイコン自身の余白（ドラフトモードと同じ） */
 #draft-sol-row > #accel-dd { flex: 0 1 170px !important; width: 170px !important; min-width: 96px !important; margin: 0 !important; }
 #tstr-panel #accel-dd .wrap:not(.default) {
     border: 1px solid var(--border-color-primary) !important; border-radius: 4px !important;
