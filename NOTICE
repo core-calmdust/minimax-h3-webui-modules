@@ -17,3 +17,9 @@ modules/spark_attn.py downloads and imports Spark-H3 (https://github.com/zecheng
 Apache License 2.0) at a pinned commit at run time; its code is not copied into this repository.
 Spark-H3's bundled sol_attn contains files derived from FlashAttention (BSD-3-Clause) and from
 NVIDIA cuDNN Frontend (Apache License 2.0); see sol_attn/THIRD_PARTY_NOTICES.md in that repository.
+
+modules/ref_filters.py downloads and imports Video Depth Anything (https://github.com/DepthAnything/Video-Depth-Anything,
+Copyright (2025) Bytedance Ltd. and/or its affiliates, Apache License 2.0) at a pinned commit at run time, and its
+Small checkpoint (https://huggingface.co/depth-anything/Video-Depth-Anything-Small, Apache License 2.0) at a pinned
+revision; neither is copied into this repository. The Base/Large checkpoints (CC-BY-NC-4.0) are not used.
+It also uses torchvision's DeepLabV3 (MobileNetV3-Large) segmentation weights (BSD-3-Clause), downloaded by torchvision.
