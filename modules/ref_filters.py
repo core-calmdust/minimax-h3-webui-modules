@@ -14,7 +14,8 @@ LIBRARY のプレビューの下で、プルダウンで加工を選び「⬇ �
   ・線画     … 1.1.0 で作り直し（利用者の判断 2026-10-24「置き換えで」）。1.0 の XDoG は鉛筆の素描に近く、麺・髪・柄の質感まで
                灰色の線になり、点のゴミ（線の塊の約 4 割が 8px 以下）とちらつきが多く、プレビズの参照には情報が多すぎた。
                → Blocking と同じく 540p で縁を残すぼかし（質感を消す）→ 差分ガウスの輪郭 → 白黒の 2 値 → 小さい塊を消す →
-               元の大きさで 2〜3px の線（縦長も短い辺で同じ細かさ）。入力をコマ間でならす（ちらつき止め）。白 255 に黒 0 の線だけ
+               元の大きさで 2〜3px の線（縦長も短い辺で同じ細かさ）。白地に黒の線だけ
+               1.1.1: チラつく（利用者報告）→ 線の濃さを連続に（しきい値すれすれで点滅しない）＋前のコマの線を動きに合わせてずらして混ぜる
   ・深度マップ … Video Depth Anything **Small**（ByteDance、コード・重みとも Apache-2.0。Base／Large は CC-BY-NC なので使わない）。
                動画用の時間方向のつながりを持つモデルで、コマ間でちらつきにくい。手前ほど白
                コードは配布元の GitHub を**版固定**（コミット）で取り寄せて import する（写さない）。重みは HF から版固定で取る
@@ -32,7 +33,7 @@ import urllib.request
 import numpy as np
 
 NAME = "ref_filters"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 API = 1
 SLOTS = ("lib_actions",)
 
@@ -47,7 +48,7 @@ MASK_EMA = 0.6                          # 人物マスクを前のコマとな�
 LINE_SIGMA = 1.0                        # 1.1.0 輪郭を取るぼかし（作業の高さ BLOCK_WORK_H＝540 での px）
 LINE_THR = 0.006                        # 1.1.0 これより暗い側に振れた所だけを線に（大きいほど線が減る）
 LINE_MIN_AREA = 40                      # 1.1.0 これより小さい線の塊は消す（540p での px 数。点のゴミ・細かい質感）
-LINE_EMA = 0.5                          # 1.1.0 入力をコマ間でならす割合（ちらつき止め）
+LINE_FOLLOW = 0.7                       # 1.1.1 前のコマの線（動きに合わせてずらしたもの）を混ぜる割合（チラつき止め）
 LINE_BILATERAL = 25                     # 1.1.0 縁を残すぼかしの色の幅（大きいほど面の質感が消える）
 DEPTH_REPO = "DepthAnything/Video-Depth-Anything"
 DEPTH_COMMIT = "4f5ae23172ba60fd7bc11ef671cca678842c7072"
@@ -221,18 +222,43 @@ def _line_pre(rgb):
     return cv2.bilateralFilter(sm, 0, LINE_BILATERAL, 3).astype(np.float32) / 255.0
 
 
-def _line(gf, hw):
-    """下ごしらえ済みの灰色 gf → 元の大きさ hw の白地に黒線（2 値。768p で約 2〜3px）"""
+def _line(gf):
+    """下ごしらえ済みの灰色 gf → 線の濃さ 0〜1（作業の大きさのまま）。
+    1.1.1: 2 値（線か白か）だと、しきい値すれすれの線がコマごとに出たり消えたりしてチラついた（利用者報告）。
+    → しきい値の前後で濃さを連続に変える（消えるときは薄くなってから消える）。小さい塊を消すのは 1.1.0 と同じ"""
     import cv2
     d = cv2.GaussianBlur(gf, (0, 0), LINE_SIGMA) - cv2.GaussianBlur(gf, (0, 0), LINE_SIGMA * 1.6)
-    ink = (d < -LINE_THR).astype(np.uint8)
+    lo = LINE_THR * 2 / 3                                        # ここから薄く出始めて、LINE_THR＋その幅で真っ黒
+    ink = (d < -lo).astype(np.uint8)
     n, lab, st, _c = cv2.connectedComponentsWithStats(ink, 8)
     keep = np.zeros(n, bool)
     keep[1:] = st[1:, cv2.CC_STAT_AREA] >= LINE_MIN_AREA * (min(gf.shape) / BLOCK_WORK_H) ** 2
+    m = cv2.dilate(keep[lab].astype(np.uint8), np.ones((3, 3), np.uint8)).astype(np.float32)
+    return np.clip((-d - lo) / LINE_THR, 0.0, 1.0) * m
+
+
+def _line_follow(gf, pg, a, pa):
+    """1.1.1 チラつき止め: 前のコマの線を動きに合わせてずらしてから混ぜる。
+    そのまま混ぜる（1.1.0 の入力ならし・単純な平均）と、カメラが動くと線が二重・残像になった。
+    動き（オプティカルフロー、半分の大きさで求める）でずらし、ずらしても合わない所（隠れた・現れた所）は混ぜない"""
+    import cv2
+    h, w = gf.shape
+    a8 = cv2.resize((gf * 255).astype(np.uint8), (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+    b8 = cv2.resize((pg * 255).astype(np.uint8), (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+    f = cv2.resize(cv2.calcOpticalFlowFarneback(a8, b8, None, 0.5, 3, 15, 3, 5, 1.2, 0), (w, h)) * 2.0
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    mx, my = gx + f[..., 0], gy + f[..., 1]
+    wg = cv2.remap(pg, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    wa = cv2.remap(pa, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    wt = cv2.GaussianBlur(LINE_FOLLOW * np.exp(-np.abs(gf - wg) / 0.04), (0, 0), 2)
+    return wt * wa + (1.0 - wt) * a
+
+
+def _line_out(a, hw):
+    """線の濃さ a（作業の大きさ）→ 元の大きさ hw の白地に黒線"""
+    import cv2
     h, w = hw
-    m = (cv2.resize(keep[lab].astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) > 0.5).astype(np.uint8)
-    # 太らせない: 540 で 1.5〜2px の線を元の大きさへ伸ばすだけで、768p で 2〜3px・1080p で 3〜4px になる（太らせると 1080p で 5〜6px と太すぎた）
-    return cv2.GaussianBlur(np.where(m > 0, 0, 255).astype(np.uint8), (0, 0), 0.6)   # 縁だけ軽くなじませる
+    return ((1.0 - cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR)) * 255.0).clip(0, 255).astype(np.uint8)
 
 
 # ------------------------------------------------------------------
@@ -377,7 +403,7 @@ def convert(path, mode):
             if m is not None:
                 g8 = _apply_bg(g8, m)
         elif mode == "line":
-            g8 = _line(_line_pre(rgb), rgb.shape[:2])
+            g8 = _line_out(_line(_line_pre(rgb)), rgb.shape[:2])
         else:
             g8 = _depth_chunk(_depth_model(), [rgb], 24.0, rgb.shape[:2])[0]   # 1 コマでも配布元が足りない分を複製して埋める
         cv2.imwrite(out, g8)
@@ -418,13 +444,14 @@ def convert(path, mode):
                     q8 = _apply_bg(q8, pm)
                 wr.put(q8[:h2, :w2])
         elif mode == "line":
-            prev = None
+            pg, pa = None, None
             for rgb in _frames(path):
                 gf = _line_pre(rgb)
-                if prev is not None and LINE_EMA > 0:
-                    gf = LINE_EMA * prev + (1 - LINE_EMA) * gf
-                prev = gf
-                wr.put(_line(gf, rgb.shape[:2])[:h2, :w2])
+                a = _line(gf)
+                if pa is not None:
+                    a = _line_follow(gf, pg, a, pa)
+                pg, pa = gf, a
+                wr.put(_line_out(a, rgb.shape[:2])[:h2, :w2])
         else:
             m = _depth_model()
             buf = []
