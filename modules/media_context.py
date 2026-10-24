@@ -43,6 +43,12 @@
        鮮鋭度が 120 → 83〜90 へ落ちて t で 98 に戻る（同じ場面の別の描画どうしを重ねると細部がずれて柔らかくなる＝ふわっと沈んで戻る）。
        → 混ぜるコマ数を選べるように（blend: 0＝混ぜずに t で切り替え、既定は 22 のまま）。計測のとき（out_dir 指定）は
          新しいクリップを混ぜる前の全コマで `_raw.mp4` にも書く＝1 回の生成から混ぜ方を何通りも作って比べられる（計測セル 184）
+0.3.4: セル184 の結果（B22／B8／B3／CUT）: 鮮鋭度の谷 0.67／0.75／0.69／0.93、t のコマ差の山 1.40／1.22／1.32／1.63 倍。
+       CUT の t の前後のコマを見ると、平均の明るさ・色は合っているのに**影が沈み、明るい所が少し明るい**（明暗の幅が広い）。
+       灰色の分位: 元 p10 2.9・p25 9.6・p90 139 → 新 0.9・4.1・144。掛け算（平均）だけでは直らない。
+       → **明暗の分布（トーンカーブ）合わせ**を足した: 各コマの明るさの分位（1/5/10/25/50/75/90/95/99%、25 コマの中央値の流れ）を
+         文脈の分位へ写す折れ線で明るさを直し、RGB には比で掛ける（暗部 16 未満は差を足す＝比が暴れない）。順は RGB 別の倍率 → カーブ → 色の広がり。
+         184 の CUT（960 幅）で: 新の p10/p25/p90 0.9/4.1/144 → 3.1/10.1/138（元 2.9/9.6/139）、t のコマ差 5.07 → 4.34（ふだん 3.61）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -55,7 +61,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 API = 1
 SLOTS = ()
 
@@ -65,6 +71,8 @@ AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコ
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 POLL_SEC = 0.5
 TONE_WIN = 25                           # 0.3.1 明るさの流れを見る幅（コマ。中央値）
+TONE_PCT = (1, 5, 10, 25, 50, 75, 90, 95, 99)   # 0.3.4 トーンカーブを合わせる明るさの分位（%）
+TONE_DARK = 16.0                        # 0.3.4 これより暗い所は比ではなく差で直す（比が暴れてノイズが立つのを防ぐ）
 TONE_CLIP = (0.75, 1.35)                # 0.3.1 明るさを合わせる倍率の範囲（0.3.2 で 0.8〜1.25 から広げた: 赤みが強い終わりの方で G が 1.3 倍要った）
 ROPE_PER_SEC = 40.0                     # 映像（5/3 × 24fps）と音声（40 潜在/秒）の RoPE の時間は、どちらも 1 秒 = 40
 
@@ -519,7 +527,8 @@ def _meta_settings(src):
 def tone_match(frames, ref_frames):
     """frames（PIL のリスト）の明るさ・色かぶり・色の広がりを ref_frames（(N,H,W,3) uint8 RGB）に合わせる
     → (新しいリスト, (最初の明るさの倍率, 最後の明るさの倍率))
-    0.3.1 明るさ（RGB に同じ倍率）→ 0.3.2 R・G・B 別の倍率＋Lab の a・b の広がり。流れは 25 コマの中央値（段差の位置を保つ）"""
+    0.3.1 明るさ（RGB に同じ倍率）→ 0.3.2 R・G・B 別の倍率＋Lab の a・b の広がり → 0.3.4 ＋明暗の分布（トーンカーブ）。
+    流れは 25 コマの中央値（段差の位置を保つ）"""
     import cv2
     from PIL import Image
     from scipy.ndimage import median_filter
@@ -537,11 +546,25 @@ def tone_match(frames, ref_frames):
     ref_sp = float(np.mean([spread(small(f)) for f in ref_frames]))
     rgb = np.array([small(f).reshape(-1, 3).mean(0) for f in frames], dtype=np.float32)
     gains = np.clip(ref_rgb[None] / np.maximum(median_filter(rgb, size=(win, 1), mode="nearest"), 1e-3), *TONE_CLIP)
-    sp = np.array([spread(small(f) * gains[i]) for i, f in enumerate(frames)], dtype=np.float32)
+    # 0.3.4 明暗の分布（トーンカーブ）: 倍率を掛けたあとの明るさの分位を文脈の分位へ写す
+    P = np.array(TONE_PCT, dtype=np.float32)
+    wy = np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    ref_pc = np.percentile(np.concatenate([(small(f) @ wy).ravel() for f in ref_frames]), P)
+    pc = np.array([np.percentile((small(f) * gains[i]) @ wy, P) for i, f in enumerate(frames)], dtype=np.float32)
+    pc = median_filter(pc, size=(win, 1), mode="nearest")
+
+    def curve(a, p):
+        y = a @ wy
+        xs = np.maximum.accumulate(np.concatenate([[0.0], p, [255.0]]) + np.arange(len(p) + 2) * 1e-3)
+        ys = np.concatenate([[0.0], ref_pc, [255.0]])
+        y2 = np.interp(y, xs, ys).astype(np.float32)
+        r = (y2 / np.maximum(y, 1e-3))[..., None]
+        return np.where((y <= TONE_DARK)[..., None], a + (y2 - y)[..., None], a * r)
+    sp = np.array([spread(curve(small(f) * gains[i], pc[i])) for i, f in enumerate(frames)], dtype=np.float32)
     sat = np.clip(ref_sp / np.maximum(median_filter(sp, size=win, mode="nearest"), 1e-3), *TONE_CLIP)
     out = []
-    for f, gg, ss in zip(frames, gains, sat):
-        a = np.asarray(f, dtype=np.float32) * gg[None, None, :]
+    for i, (f, gg, ss) in enumerate(zip(frames, gains, sat)):
+        a = curve(np.asarray(f, dtype=np.float32) * gg[None, None, :], pc[i])
         if abs(float(ss) - 1.0) >= 0.005:
             lab = cv2.cvtColor(np.clip(a / 255.0, 0, 1).astype(np.float32), cv2.COLOR_RGB2Lab)
             for c in (1, 2):
@@ -692,6 +715,7 @@ def setup(ctx):
     _ST["ctx"] = ctx
     ctx.provide("media_context_retake", retake)
     ctx.provide("media_context_audio", audio_context)
+    ctx.provide("media_context_tone", tone_match)                 # 0.3.4 計測セルが 1 回の生成から何通りも作るため
 
 
 def build_slot(ctx, slot):
