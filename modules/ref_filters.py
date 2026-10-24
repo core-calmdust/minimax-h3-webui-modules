@@ -29,7 +29,7 @@ import urllib.request
 import numpy as np
 
 NAME = "ref_filters"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 API = 1
 SLOTS = ("lib_actions",)
 
@@ -52,10 +52,12 @@ DEPTH_MAXSIDE = 960                     # 推定に渡すコマの長辺（メ�
 
 MODES = ("block", "blockfg", "line", "depth")
 RUN_LABEL = "⬇ 実行"
+BUSY_LABEL = "⏳ 処理中…"                 # 1.0.2 利用者指定: 加工している間は実行ボタンにこう出す
 NAMES = {"block": "Blocking", "blockfg": "Blocking（人物）", "line": "線画", "depth": "深度マップ"}
 
 I18N = {
     "⬇ 実行": {"en": "⬇ Run", "zh": "⬇ 执行", "ko": "⬇ 실행"},
+    "⏳ 処理中…": {"en": "⏳ Working…", "zh": "⏳ 处理中…", "ko": "⏳ 처리 중…"},
     "Blocking（人物）": {"en": "Blocking (person)", "zh": "Blocking（人物）", "ko": "Blocking(인물)"},
     "参照用に加工しています（{v0}）…": {"en": "Converting for reference ({v0})…", "zh": "正在加工为参考用（{v0}）…",
                                 "ko": "참조용으로 가공하는 중({v0})…"},
@@ -80,7 +82,8 @@ I18N = {
 # プルダウンの箱もボタンと同じ見た目にそろえる（この箱に他のプルダウンは無いので、並ぶボタンを基準にする）
 CSS = """
 /* ---- 拡張モジュール ref_filters ---- */
-#rf-row { gap: 6px !important; margin: 8px 0 0 0 !important; padding: 0 !important; flex-wrap: nowrap !important;
+/* 1.0.2: 上の「UPSCALE へ送る」との間を 8px に（本体の #412 と同じ） */
+#rf-row { gap: 6px !important; margin: -8px 0 0 0 !important; padding: 0 !important; flex-wrap: nowrap !important;
           align-items: stretch !important; }
 #rf-row > * { min-width: 0 !important; }
 #rf-dd { flex: 7 1 0 !important; padding: 0 !important; margin: 0 !important; background: none !important;
@@ -448,11 +451,12 @@ def wire(ctx, comps):
     def _busy(path, mode):
         if not _sel_ok(path):
             gr.Warning(_T("LIBRARY でファイルを選んでください"))
-        else:
-            gr.Info(_T("参照用に加工しています（{v0}）…", v0=_T(NAMES.get(mode, mode)))
-                    + (("\n" + _T("深度マップは初回だけモデル（約 110MB）を取得します"))
-                       if mode == "depth" and _ST["depth"] is None else ""))
-        return [gr.update(interactive=False) for _ in ctl]
+            return [gr.update(interactive=False), gr.update(interactive=False)]
+        gr.Info(_T("参照用に加工しています（{v0}）…", v0=_T(NAMES.get(mode, mode)))
+                + (("\n" + _T("深度マップは初回だけモデル（約 110MB）を取得します"))
+                   if mode == "depth" and _ST["depth"] is None else ""))
+        # 1.0.2: 加工している間は実行ボタンの字を「⏳ 処理中…」に（_idle で戻す）
+        return [gr.update(interactive=False), gr.update(value=_T(BUSY_LABEL), interactive=False)]
 
     def _run(path, mode):
         if not _sel_ok(path) or mode not in MODES:
@@ -469,7 +473,7 @@ def wire(ctx, comps):
         return out
 
     def _idle():
-        return [gr.update(interactive=True) for _ in ctl]
+        return [gr.update(interactive=True), gr.update(value=_T(RUN_LABEL), interactive=True)]
 
     ui["run"].click(fn=_busy, inputs=[sel, ui["dd"]], outputs=ctl, queue=False, show_progress="hidden").then(
         fn=_run, inputs=[sel, ui["dd"]], outputs=[ui["file"]], show_progress="hidden").then(

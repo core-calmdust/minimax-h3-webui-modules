@@ -1590,6 +1590,10 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
     background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
 }
 #lib-up-btn:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
+/* 🆕 2026-10-24（#412 利用者指定）LIBRARY の LOAD PARAMETERS と UPSCALE へ送るを近づける。
+   箱（#lib-preview-box）の部品の間は Gradio の gap 16px＋ボタンの margin-top 8px＝24px 空いていた → ボタンどうしは 8px に
+   （プレビューと LOAD の間は 24px のまま＝映像とボタンの群れを分ける）。下の ref_filters の行も同じ 8px にそろえる */
+#lib-preview-box #lib-up-btn { margin-top: -8px !important; }
 
 /* ============================================================
    12. SYSTEM タブ
