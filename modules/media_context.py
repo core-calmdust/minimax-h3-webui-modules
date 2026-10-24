@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -92,6 +92,7 @@ AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコ
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 AUDIO_XFADE_END_MS = 60                 # 0.6.0 区間差し替えの終わりで新しい音 → 元の音へ戻すクロスフェード
 TAIL_BLEND = 8                          # 0.6.0 区間差し替えの終わりで新しい絵 → 元の絵へ混ぜるコマ数
+TAIL_CTX_XFADE_MS = 200                 # 0.7.0 両側の文脈: 終わりの文脈の描き直し（音）と元の音を同じ時刻どうしで重ねる長さ
 POLL_SEC = 0.5
 BLEND_DEFAULT = 8                       # 0.3.6 元と描き直しを混ぜるコマ数（t の直前の 8 コマ。セル185 v2・利用者の目で決定）
 TONE_WIN = 25                           # 0.3.1 明るさの流れを見る幅（コマ。中央値）
@@ -106,6 +107,20 @@ I18N = {
         "zh": "🎬 Retake：从 {v0} 的 {v1} 秒处生成 {v2} 秒（上下文 {v3} 帧・音频 {v4}）",
         "ko": "🎬 Retake: {v0} 의 {v1} 초부터 {v2} 초 분량을 만듭니다(문맥 {v3} 프레임·음성 {v4})"},
     "あり": {"en": "yes", "zh": "有", "ko": "있음"},
+    "前後あり": {"en": "before and after", "zh": "前后都有", "ko": "앞뒤 모두"},
+    "🎬 区間差し替え（両側の文脈）: {v0} の {v1}〜{v2} 秒を作り直して元へ戻します（文脈 前後 {v3} コマ・音声 {v4}）": {
+        "en": "🎬 Range replace (both-side context): remaking {v1}–{v2} s of {v0} and returning to the source "
+              "(context {v3} frames before and after, audio {v4})",
+        "zh": "🎬 区间替换（两侧上下文）：重做 {v0} 的 {v1}〜{v2} 秒并回到原视频（上下文 前后各 {v3} 帧・音频 {v4}）",
+        "ko": "🎬 구간 교체(양쪽 문맥): {v0} 의 {v1}〜{v2} 초를 다시 만들고 원본으로 돌아갑니다(문맥 앞뒤 {v3} 프레임·음성 {v4})"},
+    "⚠️ 終わりの音声の文脈を作れませんでした（映像だけで続けます）: {v0}": {
+        "en": "⚠️ Could not build the audio context after the range (continuing with video only): {v0}",
+        "zh": "⚠️ 无法生成区间之后的音频上下文（仅用视频继续）：{v0}",
+        "ko": "⚠️ 구간 뒤의 음성 문맥을 만들 수 없었습니다(영상만으로 계속합니다): {v0}"},
+    "❌ 両側の文脈には新しいセル2 が要ります（セル2 を差し替えて起動し直してください）": {
+        "en": "❌ Both-side context needs the new cell 2 (replace cell 2 and restart)",
+        "zh": "❌ 两侧上下文需要新的单元 2（请替换单元 2 后重新启动）",
+        "ko": "❌ 양쪽 문맥에는 새 셀 2 가 필요합니다(셀 2 를 교체하고 다시 시작하세요)"},
     "なし（元の動画に音が無い）": {"en": "none (the source has no audio)", "zh": "无（原视频没有音频）", "ko": "없음(원본 영상에 소리가 없음)"},
     "なし（使わない指定）": {"en": "none (turned off)", "zh": "无（指定不使用）", "ko": "없음(사용하지 않도록 지정)"},
     "   原点シフト: 新しいクリップを元の動画の {v0} 秒から先として作ります": {
@@ -257,6 +272,34 @@ def audio_context(path, t, ctx_frames, fps=24.0):
     return z[..., end - m:end].contiguous()
 
 
+def audio_after(path, t, frames, fps=24.0):
+    """0.7.0 t から後ろ frames コマぶんの音声の文脈 → (2, C, m) 正規化済みの潜在（CPU float32）。音が無ければ None。
+    audio_context の向きを逆にしたもの: 窓は [t−0.5 秒, t＋長さ＋4 秒) をまとめてエンコードし、t からの m 潜在だけを取る"""
+    import torch
+    g = _g()
+    avae = g["pipe"].audio_vae
+    sr = _audio_sr()
+    ws = max(0.0, float(t) - AUDIO_WIN_AFTER)
+    a = _read_audio(path, sr, ws, (float(t) - ws) + frames / fps + AUDIO_WIN_BEFORE)
+    m = int(round(frames / fps * AUDIO_LAT_PER_SEC))
+    if a is None or a.shape[0] < sr * (frames / fps):
+        return None
+    p0 = next(avae.parameters())
+    wave = torch.from_numpy(np.ascontiguousarray(a.T)).to(p0.device, torch.float32)
+    abk = g.get("_attn_backend")
+    with (abk("native") if abk is not None else _null()), torch.no_grad():
+        z = avae.encode(wave[:, None], return_dict=False)[0].mode().float()
+    cfg = avae.config
+    mean = torch.tensor(cfg.latents_mean, device=z.device, dtype=z.dtype).view(1, -1, 1)
+    std = torch.tensor(cfg.latents_std, device=z.device, dtype=z.dtype).view(1, -1, 1)
+    z = ((z - mean) / std).cpu()
+    st = int(round((float(t) - ws) * z.shape[-1] / (a.shape[0] / sr)))   # t の位置（潜在の番号）
+    st = max(0, min(int(z.shape[-1]) - m, st))
+    if st + m > int(z.shape[-1]):
+        return None
+    return z[..., st:st + m].contiguous()
+
+
 class origin_shift:
     """with origin_shift(秒): 生成 1 回ぶん、文章より後ろの行（条件の映像・音声、生成する音声・映像）の RoPE の時間に 秒×40 を足す。
     本体セル2 の `_LayoutStep.build_packed_sequence`（Motion Context の差し替え）を包む。本体セル3 の install_vsa_geo は
@@ -307,8 +350,9 @@ class _null:
 #  Retake 本体
 # ------------------------------------------------------------------
 def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-                 shift=False, out_dir=None, tone=True, blend=None, t_end=None, end_key=True):
-    """0.6.0 t_end … 区間差し替えの終わり（秒）。渡すと add_sec は使わず [t, t_end) を作り直して元へ戻す。end_key … 元の終わりのコマをキーフレームに。
+                 shift=False, out_dir=None, tone=True, blend=None, t_end=None, end_key=True, tail_ctx=False):
+    """0.7.0 tail_ctx … 区間差し替えで、元の t_end から後ろの 22 コマと音も新しいクリップの終わりに文脈として置く（両側の文脈）。
+    0.6.0 t_end … 区間差し替えの終わり（秒）。渡すと add_sec は使わず [t, t_end) を作り直して元へ戻す。end_key … 元の終わりのコマをキーフレームに。
     src の t 秒から add_sec 秒を作り直す（extend=True なら t は動画の終わり）。
     (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す
     out_dir … 0.2.1 書き出し先のフォルダ（計測セルは /content/tNNN/ を渡す。そのときは Drive へ写さない）。None なら /content（LIBRARY に出る）"""
@@ -333,7 +377,7 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
     t_cut = ti / fps
     nf = int(g["calc_frames"](float(add_sec) + ctx_n / fps))      # 文脈 22 コマ＋新しい部分（17n+5）
     E = None                                                      # 0.6.0 区間差し替えの終わりのコマ（元の番号）
-    if t_end is not None and not extend:
+    if t_end is not None and not extend and not tail_ctx:
         import math
         te_f = int(round(float(t_end) * fps))
         n17 = max(2, math.ceil((te_f - (ti - ctx_n) + 1 - 5) / 17))
@@ -342,6 +386,22 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
         nf = 17 * n17 + 5
         E = ti - ctx_n + nf - 1
         if E <= ti + TAIL_BLEND:
+            yield (T("❌ 差し替える区間が短すぎるか、元の動画の終わりに近すぎます"), None)
+            return
+    E2 = None                                                     # 0.7.0 両側の文脈: 元へ戻る最初のコマ（終わりの文脈の先頭・元の番号）
+    if t_end is not None and not extend and tail_ctx:
+        import math
+        if "mc_tail_context" not in g:
+            yield (T("❌ 両側の文脈には新しいセル2 が要ります（セル2 を差し替えて起動し直してください）"), None)
+            return
+        te_f = int(round(float(t_end) * fps))
+        # クリップ＝頭の文脈 22 ＋ 作り直す区間 ＋ 終わりの文脈 22 が 17n+5。区間は 17n−39 コマ（12/29/46/63/80…）
+        n17 = max(3, math.ceil((te_f - ti + 2 * ctx_n - 5) / 17))
+        while n17 >= 3 and ti - ctx_n + 17 * n17 + 5 > int(n_src):
+            n17 -= 1                                              # 元の動画の終わりを越えないように縮める
+        nf = 17 * n17 + 5
+        E2 = ti - ctx_n + nf - ctx_n
+        if n17 < 3 or E2 <= ti:
             yield (T("❌ 差し替える区間が短すぎるか、元の動画の終わりに近すぎます"), None)
             return
     refs_by_kind = refs_by_kind or {k: [] for k in g["REF_KINDS"]}
@@ -365,7 +425,23 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
         except Exception as e:                                    # noqa: BLE001
             lines.append(T("⚠️ 音声の文脈を作れませんでした（映像だけで続けます）: {v0}", v0=f"{type(e).__name__}: {e}"))
             aud = None
-    if E is None:
+    tail_px, tail_aud = None, None
+    if E2 is not None:
+        try:
+            tail_px = _read_frames(src, w, h, E2, ctx_n)
+        except Exception as e:                                    # noqa: BLE001
+            yield (T("❌ 動画を読めませんでした: {v0}", v0=f"{e}"), None)
+            return
+        if aud is not None:
+            try:
+                tail_aud = audio_after(src, E2 / fps, ctx_n, fps)
+            except Exception as e:                                # noqa: BLE001
+                lines.append(T("⚠️ 終わりの音声の文脈を作れませんでした（映像だけで続けます）: {v0}", v0=f"{type(e).__name__}: {e}"))
+    if E2 is not None:
+        lines.insert(0, T("🎬 区間差し替え（両側の文脈）: {v0} の {v1}〜{v2} 秒を作り直して元へ戻します（文脈 前後 {v3} コマ・音声 {v4}）",
+                          v0=os.path.basename(src), v1=f"{t_cut:.2f}", v2=f"{E2 / fps:.2f}", v3=ctx_n,
+                          v4=(T("前後あり") if tail_aud is not None else aud_note)))
+    elif E is None:
         lines.insert(0, T("🎬 Retake: {v0} の {v1} 秒から {v2} 秒ぶん作ります（文脈 {v3} コマ・音声 {v4}）",
                           v0=os.path.basename(src), v1=f"{t_cut:.2f}", v2=f"{(nf - ctx_n) / fps:.2f}", v3=ctx_n, v4=aud_note))
     else:
@@ -405,7 +481,8 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
 
     def _worker():
         try:
-            with origin_shift(shift_sec):
+            tctx = g["mc_tail_context"](tail_px, audio=tail_aud) if tail_px is not None else _null()
+            with origin_shift(shift_sec), tctx:
                 box["res"] = g["_run_pipe"](seg_mode, prompt, w, h, nf, steps, int(seed), ctx_px[-1], None,
                                             refs_by_kind, prog, mc_frames=ctx_px, mc_audio=aud,
                                             mc_kf=mc_kf, kf_user=(1 if mc_kf else None))
@@ -455,13 +532,20 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
         K = TAIL_BLEND
         tail = g["_blend_head"]([Image.fromarray(x) for x in end_px], [np.asarray(f) for f in frames[nf - K:nf]], K)
         joined_head = list(joined_head[:len(joined_head) - K]) + list(tail)
+    post_from = (E + 1 if E is not None else None)
+    if E2 is not None:                                            # 0.7.0 終わりの文脈の描き直しの最初の 8 コマで新しい絵 → 元の絵へ
+        K = TAIL_BLEND
+        j0 = nf - ctx_n                                           # 新しいクリップの中で終わりの文脈が始まるコマ
+        tail = g["_blend_head"]([Image.fromarray(x) for x in tail_px[:K]], [np.asarray(f) for f in frames[j0:j0 + K]], K)
+        joined_head = list(joined_head[:L + (j0 - ctx_n)]) + list(tail)
+        post_from = E2 + K
     stamp = datetime.datetime.now().strftime("%H%M%S")
     od = str(out_dir) if out_dir else "/content"
     os.makedirs(od, exist_ok=True)
     base = os.path.join(od, f"minimax_h3_retake_{stamp}_{int(seed)}")
     p_join, p_seg = base + ".mp4", base + "_seg.mp4"
     g["export_to_video"](frames[ctx_n:], p_seg, fps=int(fps))
-    _write_joined(src, w, h, ti - L, joined_head, p_join, fps, post_from=(E + 1 if E is not None else None))
+    _write_joined(src, w, h, ti - L, joined_head, p_join, fps, post_from=post_from)
     p_raw = None
     if out_dir:                                                   # 計測用: 混ぜる前の全コマ（文脈の描き直しを含む）
         p_raw = base + "_raw.mp4"
@@ -506,13 +590,29 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
                         seg_a[-x2:] = seg_a[-x2:] * (1.0 - wgt) + post[:x2] * wgt
                         post = post[x2:]
                     seg_a = np.concatenate([seg_a, post])
+            if E2 is not None:                                    # 0.7.0 新 [t, E2) ＋ 元 [E2, 終わり]。E2 から先の新しい音は元の描き直しなので同じ時刻どうしで重ねる
+                n_mid = int(round((E2 - ti) / fps * sr))
+                post = _read_audio(src, sr, E2 / fps, None) if has_audio else None
+                x2 = int(round(TAIL_CTX_XFADE_MS / 1000.0 * sr))
+                if post is not None and post.shape[0] > 0:
+                    x2 = max(0, min(x2, post.shape[0], seg_a.shape[0] - n_mid))
+                    mid = seg_a[:n_mid].copy()
+                    if x2 > 1:
+                        wgt = np.linspace(0.0, 1.0, x2, dtype=np.float32)[:, None]
+                        post = post.copy()
+                        post[:x2] = seg_a[n_mid:n_mid + x2] * (1.0 - wgt) + post[:x2] * wgt
+                    seg_a = np.concatenate([mid, post])
+                else:
+                    seg_a = seg_a[:n_mid]
             g["_mux_audio"](p_join, np.concatenate([pre, seg_a]), sr)
         except Exception as e:                                    # noqa: BLE001
             g["log"](f"⚠️ Retake の音声をつなげませんでした: {e}")
     info = {"src": os.path.basename(src), "t": round(t_cut, 4), "frame": int(ti), "ctx": ctx_n,
             "new_frames": int(nf - ctx_n), "audio_ctx": int(aud.shape[-1]) if aud is not None else 0,
             "extend": bool(extend), "shift": round(shift_sec, 4), "tone": bool(tone), "blend": int(L),
-            "range_end": (int(E) if E is not None else None), "end_key": bool(end_key and E is not None),
+            "range_end": (int(E) if E is not None else (int(E2) - 1 if E2 is not None else None)),
+            "end_key": bool(end_key and E is not None), "tail_ctx": bool(E2 is not None),
+            "tail_audio": int(tail_aud.shape[-1]) if tail_aud is not None else 0,
             "module": f"{NAME} {VERSION}"}
     for p, kind in ((p_join, "joined"), (p_seg, "segment")):
         try:
@@ -730,7 +830,8 @@ def shift_times(text, off):
 
 
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-           shift=False, out_dir=None, inherit=False, tone=True, blend=None, turbo=None, t_end=None, end_key=True):
+           shift=False, out_dir=None, inherit=False, tone=True, blend=None, turbo=None, t_end=None, end_key=True,
+           tail_ctx=False):
     """0.5.0 turbo … Turbo LoRA の名前（空なら inherit のときは元のもの、そうでなければいまのもの）。選ぶと Steps はその LoRA の既定。
     Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
     prompt が「挙動だけ」なら元のプロンプトと合わせる（compose_prompt）。生成が終われば本体の選択は元に戻す"""
@@ -738,7 +839,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
     T = _T
     if not inherit:
         if not turbo:
-            yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key)
+            yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key, tail_ctx)
             return
         key0 = g["turbo_key"]()
         str0 = float(g["_LORA_STATE"].get("strength", 1.0))
@@ -747,7 +848,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
                 g["install_turbo_lora"](turbo, verbose=False)
             g["set_turbo_strength"](1.0)
             st_ = steps or _steps_for(turbo, mode)
-            yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, st_, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key)
+            yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, st_, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key, tail_ctx)
         finally:
             try:
                 if g["turbo_key"]() != key0:
@@ -762,7 +863,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
     if not m.get("prompt"):
         notes.append(T("⚠️ 元の動画にメタ（プロンプト）が無いので引き継げません。書いたプロンプトのまま作ります"))
         yield ("\n".join(notes), None)
-        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key)
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key, tail_ctx)
         return
     act = prompt
     if prompt and not _sections(prompt)[0]:
@@ -817,7 +918,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
                 notes.append(T("⚠️ 見つからない RefMod があります（無しで作ります）: {v0}", v0=" / ".join(miss)))
         yield ("\n".join(notes), None)
         last = ""
-        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key):
+        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key, tail_ctx):
             last = st or last
             if r is not None:
                 r = dict(r, prompt=full)
