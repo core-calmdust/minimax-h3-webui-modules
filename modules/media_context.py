@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.13.0"
+VERSION = "0.14.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -1380,9 +1380,9 @@ def _write_joined(src, w, h, n_pre, new_frames, out, fps, post_from=None):
 _MIRROR = {                                                       # SEGMENTS / LIBRARY の id → RETAKE の id
     "#seg-left": ["#rt-left"], "#seg-right": ["#rt-right"],
     "#seg-preview-box": ["#rt-src-box", "#rt-out-box"], "#seg-detail": ["#rt-detail"],
-    "#seg-act": ["#rt-act", "#rt-time"], "#seg-reseed": ["#rt-extend", "#rt-inherit"],
-    "#seg-concat-btn": ["#rt-pos-btn", "#rt-run-btn"], "#seg-msg": ["#rt-msg"], "#seg-note": ["#rt-note"],
-    "#seg-len": ["#rt-t", "#rt-add", "#rt-steps"],
+    "#seg-act": ["#rt-act", "#rt-time"], "#seg-reseed": ["#rt-extend", "#rt-inherit", "#rt-range"],
+    "#seg-concat-btn": ["#rt-pos-btn", "#rt-run-btn", "#rt-pos2-btn"], "#seg-msg": ["#rt-msg"], "#seg-note": ["#rt-note"],
+    "#seg-len": ["#rt-t", "#rt-add", "#rt-steps", "#rt-t2"],
     "#lib-up-btn": ["#lib-rt-btn"],
     "#status-panel": ["#rt-status"], "#refmod-pick": ["#rt-refmods"], "#lora-dd": ["#rt-turbo"],   # 0.5.0
     "#refmod-info": ["#rt-refmods"],                              # 0.8.0 参照のカード（CREATE の RefMod の一覧の書式）
@@ -1450,6 +1450,8 @@ HELP_RT = ("LIBRARY の動画の続きを作る・途中から作り直す機能
            "人物・場所・構図・カメラ・音はそのまま、「続きの挙動」に書いた動きやセリフだけを足します。\n"
            "時刻を書くときは**つないだ動画の時刻**で（例: 6 秒から作り直すなら `6-8s: …`）。新しいクリップの時刻へ自動で直します。\n"
            "新しいクリップは t の直前 22 コマ（約 0.9 秒）と音を引き継いで作り、t の直前 8 コマで元と混ぜてつなぎます。明るさ・色・明暗も元に合わせます。\n"
+           "「区間だけ差し替える」を ON にすると、t から「戻る位置」までだけを作り直して、その後ろは元の動画に戻ります（前後の映像と音を両方引き継ぎます）。"
+           "始まりと戻る位置は、台詞の途中にかからないよう台詞の外へ自動で少し動きます（STATUS に出ます）。\n"
            "結果は LIBRARY に「つないだもの」と「新しい部分だけ」の 2 本で残ります（元のファイルは変わりません）")
 
 I18N.update({
@@ -1457,6 +1459,11 @@ I18N.update({
     "撮り直す位置（秒）": {"en": "Retake from (s)", "zh": "重拍位置（秒）", "ko": "다시 찍을 위치(초)"},
     "▶ 再生位置を使う": {"en": "▶ Use playhead", "zh": "▶ 使用播放位置", "ko": "▶ 재생 위치 사용"},
     "終わりから延長する": {"en": "Extend from the end", "zh": "从结尾延长", "ko": "끝에서 이어 만들기"},
+    "区間だけ差し替える": {"en": "Replace a range only", "zh": "只替换区间", "ko": "구간만 교체"},
+    "戻る位置（秒）": {"en": "Return at (s)", "zh": "返回位置（秒）", "ko": "돌아갈 위치(초)"},
+    "▶ 再生位置を戻る位置に": {"en": "▶ Playhead as return point", "zh": "▶ 用播放位置作返回位置", "ko": "▶ 재생 위치를 돌아갈 위치로"},
+    "戻る位置は撮り直す位置より後ろにしてください": {"en": "Set “Return at” after “Retake from”",
+                                         "zh": "请把返回位置设在重拍位置之后", "ko": "돌아갈 위치는 다시 찍을 위치보다 뒤로 하세요"},
     "続きの挙動（動き・セリフ）": {"en": "What happens next (action / lines)", "zh": "接下来的动作（动作・台词）", "ko": "이어지는 동작(움직임·대사)"},
     "足す長さ（秒）": {"en": "Length to add (s)", "zh": "追加长度（秒）", "ko": "추가할 길이(초)"},
     "Seed（−1 で元＋1）": {"en": "Seed (−1 = source + 1)", "zh": "Seed（−1 为原 +1）", "ko": "Seed(−1 은 원본 +1)"},
@@ -1492,9 +1499,9 @@ I18N.update({
     "⛔ ほかの生成が終わるまでお待ちください": {"en": "⛔ Please wait until the other generation finishes",
                                        "zh": "⛔ 请等待其他生成完成", "ko": "⛔ 다른 생성이 끝날 때까지 기다려 주세요"},
     HELP_RT: {
-        "en": "Make the continuation of a LIBRARY video, or re-make it from a point. The **source video's metadata** (prompt, mode, RefMods, Turbo, Steps) is inherited automatically: people, place, framing, camera and sound stay, and only the movement and lines you write in “What happens next” are added.\nWrite times in the **joined video's timeline** (e.g. to re-make from 6 s, `6-8s: …`); they are converted to the new clip's timeline automatically.\nThe new clip is made from the 22 frames (about 0.9 s) and the audio just before t, and blended with the source over the last 8 frames before t. Brightness, colour and contrast are matched to the source.\nTwo results stay in LIBRARY: the joined video and the new part only (the source file is not changed)",
-        "zh": "为 LIBRARY 中的视频生成后续，或从中途重新生成。会自动继承**原视频的元数据**（提示词・模式・RefMod・Turbo・Steps），人物・地点・构图・镜头・声音保持不变，只加入你在「接下来的动作」中写的动作和台词。\n写时间时请用**拼接后视频的时间**（例：从 6 秒重做则写 `6-8s: …`），会自动换算到新片段的时间。\n新片段以 t 之前的 22 帧（约 0.9 秒）和声音为上下文生成，并在 t 之前的 8 帧与原视频混合衔接。亮度・颜色・明暗也会对齐原视频。\n结果以「拼接版」和「仅新部分」两条保存在 LIBRARY（原文件不变）",
-        "ko": "LIBRARY 영상의 뒷부분을 만들거나 중간부터 다시 만듭니다. **원본 영상의 메타데이터**(프롬프트·모드·RefMod·Turbo·Steps)를 자동으로 이어받아 인물·장소·구도·카메라·소리는 그대로 두고, 「이어지는 동작」에 쓴 움직임과 대사만 더합니다.\n시간은 **이어 붙인 영상의 시간**으로 쓰세요(예: 6 초부터 다시 만들려면 `6-8s: …`). 새 클립의 시간으로 자동 변환합니다.\n새 클립은 t 직전 22 프레임(약 0.9 초)과 소리를 이어받아 만들고, t 직전 8 프레임에서 원본과 섞어 잇습니다. 밝기·색·명암도 원본에 맞춥니다.\n결과는 LIBRARY 에 「이어 붙인 것」과 「새 부분만」 2 개로 남습니다(원본 파일은 바뀌지 않습니다)"},
+        "en": "Make the continuation of a LIBRARY video, or re-make it from a point. The **source video's metadata** (prompt, mode, RefMods, Turbo, Steps) is inherited automatically: people, place, framing, camera and sound stay, and only the movement and lines you write in “What happens next” are added.\nWrite times in the **joined video's timeline** (e.g. to re-make from 6 s, `6-8s: …`); they are converted to the new clip's timeline automatically.\nThe new clip is made from the 22 frames (about 0.9 s) and the audio just before t, and blended with the source over the last 8 frames before t. Brightness, colour and contrast are matched to the source.\nWith “Replace a range only” on, only the part from t to “Return at” is re-made and the source video continues after it (the video and audio on both sides are used as context). The start and the return point move slightly out of any line of dialogue automatically (shown in STATUS).\nTwo results stay in LIBRARY: the joined video and the new part only (the source file is not changed)",
+        "zh": "为 LIBRARY 中的视频生成后续，或从中途重新生成。会自动继承**原视频的元数据**（提示词・模式・RefMod・Turbo・Steps），人物・地点・构图・镜头・声音保持不变，只加入你在「接下来的动作」中写的动作和台词。\n写时间时请用**拼接后视频的时间**（例：从 6 秒重做则写 `6-8s: …`），会自动换算到新片段的时间。\n新片段以 t 之前的 22 帧（约 0.9 秒）和声音为上下文生成，并在 t 之前的 8 帧与原视频混合衔接。亮度・颜色・明暗也会对齐原视频。\n打开「只替换区间」后，只重做从 t 到「返回位置」的部分，之后回到原视频（前后的画面和声音都作为上下文）。开始和返回位置会自动稍微移到台词之外（显示在 STATUS）。\n结果以「拼接版」和「仅新部分」两条保存在 LIBRARY（原文件不变）",
+        "ko": "LIBRARY 영상의 뒷부분을 만들거나 중간부터 다시 만듭니다. **원본 영상의 메타데이터**(프롬프트·모드·RefMod·Turbo·Steps)를 자동으로 이어받아 인물·장소·구도·카메라·소리는 그대로 두고, 「이어지는 동작」에 쓴 움직임과 대사만 더합니다.\n시간은 **이어 붙인 영상의 시간**으로 쓰세요(예: 6 초부터 다시 만들려면 `6-8s: …`). 새 클립의 시간으로 자동 변환합니다.\n새 클립은 t 직전 22 프레임(약 0.9 초)과 소리를 이어받아 만들고, t 직전 8 프레임에서 원본과 섞어 잇습니다. 밝기·색·명암도 원본에 맞춥니다.\n「구간만 교체」를 켜면 t 부터 「돌아갈 위치」까지만 다시 만들고, 그 뒤는 원본 영상으로 돌아갑니다(앞뒤 영상과 소리를 모두 이어받습니다). 시작과 돌아갈 위치는 대사 중간에 걸리지 않도록 대사 밖으로 자동으로 조금 움직입니다(STATUS 에 표시).\n결과는 LIBRARY 에 「이어 붙인 것」과 「새 부분만」 2 개로 남습니다(원본 파일은 바뀌지 않습니다)"},
 })
 
 _UI = {}
@@ -1538,6 +1545,11 @@ def build_slot(ctx, slot):
                     _UI["t"] = gr.Slider(0.0, 10.0, value=10.0, step=round(1 / 24.0, 5), label="撮り直す位置（秒）",
                                          interactive=False, elem_id="rt-t")
                     _UI["pos"] = gr.Button("▶ 再生位置を使う", elem_id="rt-pos-btn")
+                    # 0.14.0 区間差し替え（t から「戻る位置」までだけ作り直し、その後ろは元の動画へ戻る）
+                    _UI["range"] = gr.Checkbox(value=False, label="区間だけ差し替える", elem_id="rt-range")
+                    _UI["t2"] = gr.Slider(0.0, 10.0, value=10.0, step=round(1 / 24.0, 5), label="戻る位置（秒）",
+                                          interactive=False, elem_id="rt-t2")
+                    _UI["pos2"] = gr.Button("▶ 再生位置を戻る位置に", elem_id="rt-pos2-btn")
                 _UI["rm"] = gr.HTML(_refs_html({}), elem_id="rt-refmods")
             with gr.Column(scale=1, elem_id="rt-right"):
                 with gr.Column(elem_classes=["panel"], elem_id="rt-act"):
@@ -1730,14 +1742,14 @@ def _load_source(path):
     T = _T
     path = getattr(path, "name", path)
     if not path or not os.path.isfile(str(path)):
-        return None, gr.update(), "", gr.update(), T("LIBRARY でファイルを選んでください"), gr.update()
+        return None, gr.update(), "", gr.update(), T("LIBRARY でファイルを選んでください"), gr.update(), gr.update()
     path = str(path)
     if g.get("is_still") and g["is_still"](path):
-        return None, gr.update(), "", gr.update(), T("静止画は RETAKE できません（動画を選んでください）"), gr.update()
+        return None, gr.update(), "", gr.update(), T("静止画は RETAKE できません（動画を選んでください）"), gr.update(), gr.update()
     try:
         w, h, n, fps, _a = g["_probe_video"](path)
     except Exception as e:                                        # noqa: BLE001
-        return None, gr.update(), "", gr.update(), T("❌ 動画を読めませんでした: {v0}", v0=f"{e}"), gr.update()
+        return None, gr.update(), "", gr.update(), T("❌ 動画を読めませんでした: {v0}", v0=f"{e}"), gr.update(), gr.update()
     fpsx = float(g.get("FPS", 24))
     dur = round(int(n) / fpsx, 3)
     m = g["read_meta"](path) or {}
@@ -1752,7 +1764,8 @@ def _load_source(path):
         lines.append(T("メタ（プロンプト）が無い動画です。「元の設定を引き継ぐ」は使えません"))
     mn = round(int(g.get("MOTION_CTX_FRAMES", 22)) / fpsx + 0.01, 2)
     return (path, gr.update(value=path), "\n\n".join(lines),
-            gr.update(minimum=mn, maximum=max(mn, dur), value=dur), "", _refs_html(m if m.get("prompt") else {}))
+            gr.update(minimum=mn, maximum=max(mn, dur), value=dur), "", _refs_html(m if m.get("prompt") else {}),
+            gr.update(minimum=mn, maximum=max(mn, dur), value=dur))
 
 
 def wire(ctx, comps):
@@ -1762,7 +1775,7 @@ def wire(ctx, comps):
         return
     T = _T
     main_tabs = comps.get("main_tabs")
-    load_out = [_UI["src"], _UI["src_video"], _UI["detail"], _UI["t"], _UI["msg"], _UI["rm"]]
+    load_out = [_UI["src"], _UI["src_video"], _UI["detail"], _UI["t"], _UI["msg"], _UI["rm"], _UI["t2"]]
     sel = comps.get("lib_sel_path")
     if "lib_btn" in _UI and sel is not None:
         ev = _UI["lib_btn"].click(fn=_load_source, inputs=[sel], outputs=load_out, queue=False, show_progress="hidden")
@@ -1770,12 +1783,20 @@ def wire(ctx, comps):
             ev.then(fn=lambda s: gr.update(selected="tab-retake") if s else gr.update(), inputs=[_UI["src"]],
                     outputs=[main_tabs], queue=False, show_progress="hidden")
     _UI["src_video"].upload(fn=_load_source, inputs=[_UI["src_video"]], outputs=load_out, queue=False, show_progress="hidden")
-    _UI["extend"].change(fn=lambda e: gr.update(interactive=not e), inputs=[_UI["extend"]], outputs=[_UI["t"]],
-                         queue=False, show_progress="hidden")
+    # 0.14.0 延長と区間差し替えはどちらか一方（片方を ON にするともう片方は外す）。区間差し替えのときは「足す長さ」は使わない
+    _UI["extend"].change(fn=lambda e: (gr.update(interactive=not e), gr.update(value=False) if e else gr.update()),
+                         inputs=[_UI["extend"]], outputs=[_UI["t"], _UI["range"]], queue=False, show_progress="hidden")
+    _UI["range"].change(fn=lambda r: (gr.update(interactive=bool(r)), gr.update(interactive=not r),
+                                      gr.update(value=False) if r else gr.update()),
+                        inputs=[_UI["range"]], outputs=[_UI["t2"], _UI["add"], _UI["extend"]], queue=False, show_progress="hidden")
     # 再生位置: ブラウザの <video> の currentTime を読む（Python からは見えない）。読んだら延長を外す
     _UI["pos"].click(fn=None, inputs=None, outputs=[_UI["t"], _UI["extend"]],
                      js="() => { const v = document.querySelector('#rt-src-video video'); "
                         "return [v ? Math.round(v.currentTime * 24) / 24 : 0, false]; }")
+    # 0.14.0 再生位置を「戻る位置」に。読んだら区間差し替えを ON にする
+    _UI["pos2"].click(fn=None, inputs=None, outputs=[_UI["t2"], _UI["range"]],
+                      js="() => { const v = document.querySelector('#rt-src-video video'); "
+                         "return [v ? Math.round(v.currentTime * 24) / 24 : 0, true]; }")
 
     mode_c, steps_c = comps.get("mode"), comps.get("steps")
     extra_in = [c for c in (mode_c, steps_c) if c is not None]
@@ -1786,7 +1807,7 @@ def wire(ctx, comps):
     def _idle():
         return gr.update(value=T("🎬 RETAKE"), interactive=True)
 
-    def _run(src, t, extend, action, add, seed, inherit, turbo, steps_ui, *extra):
+    def _run(src, t, extend, action, add, seed, inherit, turbo, steps_ui, rng_on, t2, *extra):
         if not src or not os.path.isfile(str(src)):
             yield T("LIBRARY で動画を選んで「↪ RETAKE へ送る」か、SOURCE に動画を入れてください。"), gr.update()
             return
@@ -1805,12 +1826,18 @@ def wire(ctx, comps):
         steps = int(extra[1]) if (len(extra) > 1 and not inherit and extra[1]) else None
         if steps_ui and int(steps_ui) > 0:                        # 0.5.0 RETAKE で選んだ Steps が勝つ
             steps = int(steps_ui)
+        rkw = {}
+        if rng_on and not extend:                                 # 0.14.0 区間差し替え（両側の文脈・台詞の外へ寄せる）
+            if float(t2 or 0) <= float(t or 0) + 0.5:
+                yield T("戻る位置は撮り直す位置より後ろにしてください"), gr.update()
+                return
+            rkw = dict(t_end=float(t2), tail_ctx=True, end_key=False)
         if busy is not None:
             busy.set()
         last, res = "", None
         try:
             for st, r in retake(str(src), float(t or 0), float(add or 5), str(action), sd, mode=mode, steps=steps,
-                                use_audio=True, extend=bool(extend), inherit=bool(inherit), turbo=(turbo or None)):
+                                use_audio=True, extend=bool(extend), inherit=bool(inherit), turbo=(turbo or None), **rkw):
                 last = st or last
                 if r is not None:
                     res = r
@@ -1821,7 +1848,7 @@ def wire(ctx, comps):
         yield str(last), (gr.update(value=res["joined"]) if res else gr.update())
 
     run_in = [_UI["src"], _UI["t"], _UI["extend"], _UI["action"], _UI["add"], _UI["seed"], _UI["inherit"],
-              _UI["turbo"], _UI["steps"]] + extra_in
+              _UI["turbo"], _UI["steps"], _UI["range"], _UI["t2"]] + extra_in
     # Turbo を選んだら Steps にその既定を入れる（「元と同じ」なら 0＝自動）。CREATE の Turbo と同じ動き
     _UI["turbo"].change(fn=lambda k: gr.update(value=int(_steps_for(k, None) or 0) if k else 0), inputs=[_UI["turbo"]],
                         outputs=[_UI["steps"]], queue=False, show_progress="hidden")
