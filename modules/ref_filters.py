@@ -4,7 +4,7 @@
 
 利用者の用途（2026-10-24）: この WebUI で作った動画を Seedance などに参照（プレビズ）として渡すとき、
 そのままだと相手のフィルタに弾かれることがある。明暗の構図・形・前後関係だけを残した加工だと通りやすく、結果も良かった。
-LIBRARY のプレビューの下のボタン 1 つで「加工 → そのままダウンロード」まで行う（UPSCALE などへ送らない）。
+LIBRARY のプレビューの下で、プルダウンで加工を選び「⬇ 実行」で「加工 → そのままダウンロード」まで行う（UPSCALE などへ送らない）。
 
   ・Blocking … 灰色 3 階調のベタ塗り（黒 27・灰 130・白 237。利用者の見本 MAS_blocking.mp4 を測った値）。
                縁を残すぼかし → 2 つのしきい値で 3 段 → 形をなめらかに。しきい値は**動画全体で 1 回**決める（コマごとだとちらつく）
@@ -29,7 +29,7 @@ import urllib.request
 import numpy as np
 
 NAME = "ref_filters"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 API = 1
 SLOTS = ("lib_actions",)
 
@@ -51,15 +51,12 @@ DEPTH_CHUNK = 720                       # 一度に推定するコマ数（30 �
 DEPTH_MAXSIDE = 960                     # 推定に渡すコマの長辺（メモリを抑える。出力は元の大きさに戻す）
 
 MODES = ("block", "blockfg", "line", "depth")
-LABELS = {"block": "⬇ Blocking", "blockfg": "⬇ Blocking（人物）", "line": "⬇ 線画", "depth": "⬇ 深度マップ"}
+RUN_LABEL = "⬇ 実行"
 NAMES = {"block": "Blocking", "blockfg": "Blocking（人物）", "line": "線画", "depth": "深度マップ"}
 
 I18N = {
-    "⬇ Blocking": {"en": "⬇ Blocking", "zh": "⬇ Blocking", "ko": "⬇ Blocking"},
-    "⬇ Blocking（人物）": {"en": "⬇ Blocking (person)", "zh": "⬇ Blocking（人物）", "ko": "⬇ Blocking(인물)"},
-    "Blocking（人物）": {"en": "Blocking (person only)", "zh": "Blocking（仅人物）", "ko": "Blocking(인물만)"},
-    "⬇ 線画": {"en": "⬇ Line art", "zh": "⬇ 线稿", "ko": "⬇ 선화"},
-    "⬇ 深度マップ": {"en": "⬇ Depth map", "zh": "⬇ 深度图", "ko": "⬇ 깊이 맵"},
+    "⬇ 実行": {"en": "⬇ Run", "zh": "⬇ 执行", "ko": "⬇ 실행"},
+    "Blocking（人物）": {"en": "Blocking (person)", "zh": "Blocking（人物）", "ko": "Blocking(인물)"},
     "参照用に加工しています（{v0}）…": {"en": "Converting for reference ({v0})…", "zh": "正在加工为参考用（{v0}）…",
                                 "ko": "참조용으로 가공하는 중({v0})…"},
     "深度マップは初回だけモデル（約 110MB）を取得します": {"en": "The depth map downloads its model (about 110 MB) the first time",
@@ -71,31 +68,51 @@ I18N = {
     "LIBRARY でファイルを選んでください": {"en": "Select a file in LIBRARY", "zh": "请在 LIBRARY 中选择文件",
                               "ko": "LIBRARY에서 파일을 선택하세요"},
     "Blocking": {"en": "Blocking", "zh": "Blocking", "ko": "Blocking"},
-    "線画": {"en": "line art", "zh": "线稿", "ko": "선화"},
-    "深度マップ": {"en": "depth map", "zh": "深度图", "ko": "깊이 맵"},
+    "線画": {"en": "Line art", "zh": "线稿", "ko": "선화"},
+    "深度マップ": {"en": "Depth map", "zh": "深度图", "ko": "깊이 맵"},
     "深度マップのモデルを読み込めません: {v0}": {"en": "Cannot load the depth model: {v0}", "zh": "无法加载深度模型：{v0}",
                                   "ko": "깊이 모델을 불러올 수 없습니다: {v0}"},
 }
 
 # 基準: 同じ箱の「⤴ UPSCALE へ送る」（#lib-up-btn）。大きさ・色・字・字間・角丸・枠を同じにし、3 つを横に並べる
+# 1.0.1（利用者指定 2026-10-24）: 4 つのボタンをやめ、プルダウンで選んで「⬇ 実行」で加工する 1 行に。
+# 基準: 同じ箱の「⤴ UPSCALE へ送る」（#lib-up-btn）＝高さ 34・地 --h3-elev・枠 --h3-border2・角丸 6・11px・0.12em・--h3-muted。
+# プルダウンの箱もボタンと同じ見た目にそろえる（この箱に他のプルダウンは無いので、並ぶボタンを基準にする）
 CSS = """
 /* ---- 拡張モジュール ref_filters ---- */
-#rf-row, #rf-row2 { gap: 6px !important; margin: 0 !important; padding: 0 !important; flex-wrap: nowrap !important; }
-#rf-row > *, #rf-row2 > * { min-width: 0 !important; flex: 1 1 0 !important; }
-#rf-block, #rf-blockfg, #rf-line, #rf-depth {
-    width: 100% !important; height: 34px !important; margin-top: 8px !important; min-width: 0 !important;
+#rf-row { gap: 6px !important; margin: 8px 0 0 0 !important; padding: 0 !important; flex-wrap: nowrap !important;
+          align-items: stretch !important; }
+#rf-row > * { min-width: 0 !important; }
+#rf-dd { flex: 7 1 0 !important; padding: 0 !important; margin: 0 !important; background: none !important;
+         border: 0 !important; box-shadow: none !important; }
+/* ⚠️ `.wrap` は読み込み中の表示（.wrap.default）にも付くので、選択欄の箱（.wrap-inner を持つもの）だけを名指しする */
+#rf-dd .wrap:has(> .wrap-inner) {
+    min-height: 34px !important; height: 34px !important;
+    background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
+    border-radius: 6px !important; box-shadow: none !important; padding: 0 10px !important; box-sizing: border-box !important;
+}
+#rf-dd .wrap:has(> .wrap-inner):hover { border-color: var(--h3-border-hover) !important; }
+#rf-dd .wrap-inner { padding: 0 !important; height: 100% !important; min-height: 0 !important;
+                     display: flex !important; align-items: center !important; }
+#rf-dd input { padding-right: 22px !important; }
+#rf-dd input, #rf-dd .secondary-wrap, #rf-dd .single-select {
+    color: var(--h3-muted) !important; font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
+}
+#rf-dd .icon-wrap, #rf-dd svg { color: var(--h3-muted) !important; }
+#rf-run {
+    flex: 3 1 0 !important; width: 100% !important; height: 34px !important; margin: 0 !important; min-width: 0 !important;
     padding: 0 6px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
     background: var(--h3-elev) !important; border: 1px solid var(--h3-border2) !important;
     border-radius: 6px !important; color: var(--h3-muted) !important;
     font-size: 11px !important; letter-spacing: 0.12em !important; font-weight: 400 !important;
 }
-#rf-block:hover:not(:disabled), #rf-blockfg:hover:not(:disabled), #rf-line:hover:not(:disabled), #rf-depth:hover:not(:disabled) {
+#rf-run:hover:not(:disabled) {
     background: var(--h3-border) !important; border-color: var(--h3-border-hover) !important; color: var(--h3-text) !important;
 }
-#rf-block:disabled, #rf-blockfg:disabled, #rf-line:disabled, #rf-depth:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
+#rf-run:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
 /* 受け渡し用のファイル欄は見せない（JS がここからダウンロードを始める） */
 #rf-file { display: none !important; }
-#lib-preview-box:fullscreen #rf-row, #lib-preview-box:fullscreen #rf-row2 { display: none !important; }
+#lib-preview-box:fullscreen #rf-row { display: none !important; }
 """
 
 # 出力のファイルを受け取ったら、ブラウザのダウンロードを始める（ページは移らない）
@@ -407,10 +424,10 @@ def build_slot(ctx, slot):
     gr = ctx.gr
     ui = _ST["ui"]
     if slot == "lib_actions":                                    # LIBRARY ▸ プレビュー箱（UPSCALE へ送る の下）
-        for rid, keys in (("rf-row", ("block", "blockfg")), ("rf-row2", ("line", "depth"))):
-            with gr.Row(elem_id=rid):
-                for k in keys:
-                    ui[k] = gr.Button(LABELS[k], interactive=False, elem_id=f"rf-{k}", min_width=0)
+        with gr.Row(elem_id="rf-row"):
+            ui["dd"] = gr.Dropdown(choices=[(NAMES[k], k) for k in MODES], value=MODES[0], show_label=False,
+                                   filterable=False, interactive=True, elem_id="rf-dd", min_width=0, container=False)
+            ui["run"] = gr.Button(RUN_LABEL, elem_id="rf-run", min_width=0)
         ui["file"] = gr.File(value=None, interactive=False, elem_id="rf-file", show_label=False)
 
 
@@ -419,51 +436,42 @@ def _sel_ok(path):
 
 
 def wire(ctx, comps):
+    """1.0.1: ボタンは常に押せる（選んでいるかは押したときに見る）。State の .change で出し入れすると
+    取りこぼしで押せないままになった（利用者報告 2026-10-24「使えなくなってます」）"""
     gr = ctx.gr
     ui = _ST["ui"]
     sel = comps.get("lib_sel_path")
-    if sel is None or "block" not in ui:
+    if sel is None or "run" not in ui:
         return
-    btns = [ui[k] for k in MODES]
+    ctl = [ui["dd"], ui["run"]]
 
-    def _avail(path):
-        ok = _sel_ok(path)
-        return [gr.update(interactive=ok) for _ in btns]
-    sel.change(fn=_avail, inputs=[sel], outputs=btns, queue=False, show_progress="hidden")
+    def _busy(path, mode):
+        if not _sel_ok(path):
+            gr.Warning(_T("LIBRARY でファイルを選んでください"))
+        else:
+            gr.Info(_T("参照用に加工しています（{v0}）…", v0=_T(NAMES.get(mode, mode)))
+                    + (("\n" + _T("深度マップは初回だけモデル（約 110MB）を取得します"))
+                       if mode == "depth" and _ST["depth"] is None else ""))
+        return [gr.update(interactive=False) for _ in ctl]
 
-    def _make(mode):
-        name = NAMES[mode]
+    def _run(path, mode):
+        if not _sel_ok(path) or mode not in MODES:
+            return None
+        t0 = time.time()
+        try:
+            out = convert(str(path), mode)
+        except Exception as e:                                    # noqa: BLE001
+            msg = f"{type(e).__name__}: {str(e)[:200]}"
+            ctx.log(_T("参照用の加工に失敗しました: {v0}", v0=msg))
+            gr.Warning(_T("参照用の加工に失敗しました: {v0}", v0=msg))
+            return None
+        ctx.log(_T("参照用に加工しました（{v0}・{v1} 秒）: {v2}", v0=_T(NAMES[mode]), v1=f"{time.time() - t0:.1f}", v2=out))
+        return out
 
-        def _busy(path):
-            if not _sel_ok(path):
-                gr.Warning(_T("LIBRARY でファイルを選んでください"))
-            else:
-                gr.Info(_T("参照用に加工しています（{v0}）…", v0=_T(name))
-                        + (("\n" + _T("深度マップは初回だけモデル（約 110MB）を取得します"))
-                           if mode == "depth" and _ST["depth"] is None else ""))
-            return [gr.update(interactive=False) for _ in btns]
+    def _idle():
+        return [gr.update(interactive=True) for _ in ctl]
 
-        def _run(path):
-            if not _sel_ok(path):
-                return None
-            t0 = time.time()
-            try:
-                out = convert(str(path), mode)
-            except Exception as e:                                # noqa: BLE001
-                msg = f"{type(e).__name__}: {str(e)[:200]}"
-                ctx.log(_T("参照用の加工に失敗しました: {v0}", v0=msg))
-                gr.Warning(_T("参照用の加工に失敗しました: {v0}", v0=msg))
-                return None
-            ctx.log(_T("参照用に加工しました（{v0}・{v1} 秒）: {v2}", v0=_T(name), v1=f"{time.time() - t0:.1f}", v2=out))
-            return out
-
-        def _idle(path):
-            return _avail(path)
-        return _busy, _run, _idle
-
-    for mode, b in zip(MODES, btns):
-        _busy, _run, _idle = _make(mode)
-        b.click(fn=_busy, inputs=[sel], outputs=btns, queue=False, show_progress="hidden").then(
-            fn=_run, inputs=[sel], outputs=[ui["file"]], show_progress="hidden").then(
-            fn=None, inputs=[ui["file"]], outputs=None, js=DL_JS).then(
-            fn=_idle, inputs=[sel], outputs=btns, queue=False, show_progress="hidden")
+    ui["run"].click(fn=_busy, inputs=[sel, ui["dd"]], outputs=ctl, queue=False, show_progress="hidden").then(
+        fn=_run, inputs=[sel, ui["dd"]], outputs=[ui["file"]], show_progress="hidden").then(
+        fn=None, inputs=[ui["file"]], outputs=None, js=DL_JS).then(
+        fn=_idle, inputs=None, outputs=ctl, queue=False, show_progress="hidden")
