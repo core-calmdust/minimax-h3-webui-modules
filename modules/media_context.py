@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -101,7 +101,7 @@ SEG_RANGE_DB = 30.0                     #        と、いちばん大きい所�
 SEG_GAP_SEC = 0.2                       # 0.10.0 これより短い切れ目は同じ台詞の中の息つぎとしてつなぐ
 SEG_MIN_SEC = 0.12                      # 0.10.0 これより短い声は捨てる（物音）
 SEG_PAD_SEC = 0.06                      # 0.10.0 区間の端をこれだけ声から離す
-ALIGN_SKIP = 0.5                        # 0.10.0 台詞に当てない声（笑いなど）を飛ばす罰（秒）
+ALIGN_SKIP = 1.0                        # 0.10.0 台詞に当てない声（笑いなど）を飛ばす罰（秒）。0.11.0 で 0.5 → 1.0（台詞の中の間で割れた声を飛ばさず、まとめて当てる）
 SNAP_GAIN_DB = 6.0                      # 0.9.0 始まりと戻る所の音の合計がこれ以上静かになるときだけ寄せる
 SNAP_PENALTY_DB = 0.4                   # 0.9.0 指定から 1 コマずらすごとの罰（dB）。同じくらい静かなら指定に近い方
 TAIL_CTX_XFADE_MS = 200                 # 0.7.0 両側の文脈: 終わりの文脈の描き直し（音）と元の音を同じ時刻どうしで重ねる長さ
@@ -767,7 +767,26 @@ def speech_segments(src):
     return segs
 
 
-def plan_range(src, t, t_end, fps=24.0):
+def line_units(src, prompt):
+    """0.11.0 台詞ひとつ＝1 単位の声の区間 [(始め, 終わり)]。元のプロンプトの台詞の拍を声の区間へ当て（align_beats）、
+    当たった区間はまとめて 1 つ、当たらなかった声（笑いなど）はそのまま。プロンプトが無ければ声の区間そのもの。
+    （セル189: 「ううん、まだ。」と「どんな話？」の間に 0.3 秒の間があり、声の区間が 2 つに割れた → 区間の始まりが台詞の真ん中に寄せられ、
+    「ううん、まだ」が残って新しい「まだなの」が落ちた）"""
+    segs = speech_segments(src)
+    if not prompt or not segs:
+        return segs
+    _o, sec = _sections(prompt)
+    dd = sec.get("detailed_description") or prompt
+    _pre, mark, post = dd.partition("[Shot 1]")
+    al = align_beats(_beats(_sentences(post if mark else dd)), segs)
+    units = sorted(al.values())
+    for s0, s1 in segs:
+        if not any(u0 - 1e-6 <= s0 and s1 <= u1 + 1e-6 for u0, u1 in units):
+            units.append((s0, s1))
+    return sorted(units)
+
+
+def plan_range(src, t, t_end, fps=24.0, units=None):
     """0.9.0 両側の文脈の区間を決める → (ti, E2, 寄せたか, 始まりの音 dB, 戻り際の音 dB)。
     区間の長さは 17n−39 コマ刻みなので、始まり ti と戻る位置 E2（元へ戻る最初のコマ）を一緒に動かす。
     0.10.0 声のある区間（speech_segments）の外に置けるなら、ti は ±SNAP_SPEECH_SEC・E2 は ±SNAP_SPEECH_END_SEC まで動かして台詞の途中を避ける
@@ -802,7 +821,7 @@ def plan_range(src, t, t_end, fps=24.0):
         r = SNAP_WIN_SEC / 0.01
         seg = db[max(0, int(c - r)):int(c + r) + 1]
         return float(seg.max()) if seg.size else -120.0
-    segs = speech_segments(src)
+    segs = units if units is not None else speech_segments(src)
 
     def in_speech(f):
         x = f / fps
@@ -847,15 +866,13 @@ def plan_range(src, t, t_end, fps=24.0):
     return ti, E2, (ti != ti0 or E2 != p0), loud(ti), loud(E2)
 
 
-def align_beats(beats, segs):
-    """0.10.0 台詞の拍（<d> を含む拍）を、実際の声の区間へ順に当てる → {拍の番号: (始め, 終わり)}。
+def _align_once(beats, segs, dl, off):
+    """（align_beats の 1 回ぶん。書いた時刻を off 秒ずらして当てる）
+    0.10.0 台詞の拍（<d> を含む拍）を、実際の声の区間へ順に当てる → {拍の番号: (始め, 終わり)}。
     H3 はプロンプトの時刻どおりには話さない（セル188: 2 つ目の台詞は書いた 3.5〜5.5 秒ではなく 2.9〜4.1 秒）。
     1 つの台詞が間で 2 つの区間に割れることも、台詞の無い声（笑い）があることもあるので、順番を保ったまま
     『拍 1 つ ← 続いた区間いくつか』と『区間を飛ばす』の組み合わせで、時刻のずれ（秒）の合計がいちばん小さい当て方を選ぶ（動的計画法）"""
-    dl = [i for i, (sp, bt) in enumerate(beats) if sp is not None and "<d>" in bt]
     m, n = len(dl), len(segs)
-    if not m or not n:
-        return {}
     INF = float("inf")
     cost = [[INF] * (n + 1) for _ in range(m + 1)]
     back = [[None] * (n + 1) for _ in range(m + 1)]
@@ -870,20 +887,33 @@ def align_beats(beats, segs):
                 if cc < cost[i][j + 1]:
                     cost[i][j + 1], back[i][j + 1] = cc, (i, j, None)
             if i < m:
-                b0, b1 = beats[dl[i]][0]
+                b0, b1 = beats[dl[i]][0][0] + off, beats[dl[i]][0][1] + off
                 for k in range(j + 1, min(n, j + 3) + 1):          # 区間 j..k−1（3 つまで）を拍 i に
                     cc = c + abs(segs[j][0] - b0) + abs(segs[k - 1][1] - b1)
                     if cc < cost[i + 1][k]:
                         cost[i + 1][k], back[i + 1][k] = cc, (i, j, k)
     if cost[m][n] == INF:
-        return {}
+        return INF, {}
     out, i, j = {}, m, n
     while i or j:
         pi, pj, k = back[i][j]
         if k is not None:
             out[dl[pi]] = (segs[pj][0], segs[k - 1][1])
         i, j = pi, pj
-    return out
+    return cost[m][n], out
+
+
+def align_beats(beats, segs):
+    """0.11.0 全体のずれ（H3 が書いた時刻より早く・遅く話す分）を −1.5〜＋1.5 秒で探してから当てる（_align_once のいちばん安いもの）"""
+    dl = [i for i, (sp, bt) in enumerate(beats) if sp is not None and "<d>" in bt]
+    if not dl or not segs:
+        return {}
+    best = (float("inf"), {})
+    for k in range(-30, 31):
+        c, out = _align_once(beats, segs, dl, k * 0.05)
+        if c < best[0] - 1e-9:
+            best = (c, out)
+    return best[1]
 
 
 def _beat_span(text):
@@ -978,6 +1008,12 @@ def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None
             bt2 = _retime(bt, sp, rs) if rs != sp else bt
             bt2 = _shift_clip(bt2, off, clip_sec)
             (before if (cut is None or rs[0] < cut) else after).append(bt2)
+    # 0.11.0 区間差し替えでは、書いた台詞のほかに声を足さないと明記する（セル189: 書いた台詞のあと次の台詞までの間に「ほらね」を足した。
+    #        セル187: 台詞を書かない区間で意味の無い声を出した）
+    quiet = ""
+    if windows:
+        quiet = (" Apart from this line, nobody says anything else in this part; the next line starts after a short silence."
+                 if "<d>" in action else " Nobody speaks in this part.")
     ps = [x for x in _sentences(post) if not _has_time(x)]
     frame = ps[0] if ps else ""
     tail = [x for x in ps[1:] if ("camera" in x.lower() or x.lower().startswith("the shot ends")
@@ -985,7 +1021,7 @@ def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None
     if _has_time(pre):
         pre = " ".join(x for x in _sentences(pre) if not _has_time(x))
     out["detailed_description"] = " ".join(y for y in (pre.strip(), "[Shot 1] " + ("The same framing continues — " + frame if frame else "").strip(),
-                                                        " ".join(before), action, " ".join(after), " ".join(tail)) if y).replace("  ", " ")
+                                                        " ".join(before), action + quiet, " ".join(after), " ".join(tail)) if y).replace("  ", " ")
     return "\n\n".join(f"{k}:\n{out[k]}" for k in order)
 
 
@@ -1139,7 +1175,11 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
     if t_end is not None and tail_ctx and not extend and snap:
         try:
             fpsx = float(_g().get("FPS", 24))
-            ti_, e2_, moved, d1, d2 = plan_range(src, t, t_end, fpsx)
+            try:
+                _mp = str((_g()["read_meta"](src) or {}).get("prompt") or "")
+            except Exception:                                     # noqa: BLE001
+                _mp = ""
+            ti_, e2_, moved, d1, d2 = plan_range(src, t, t_end, fpsx, units=line_units(src, _mp))
             if moved:
                 pre.append(T("   区間を元の音の切れ目へ寄せました: 指定 {v0}〜{v1} 秒 → {v2}〜{v3} 秒（始まり {v4} dB・戻る所 {v5} dB）",
                              v0=f"{float(t):.2f}", v1=f"{float(t_end):.2f}", v2=f"{ti_ / fpsx:.2f}", v3=f"{e2_ / fpsx:.2f}",
