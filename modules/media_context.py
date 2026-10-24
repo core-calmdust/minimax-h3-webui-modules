@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -94,6 +94,14 @@ AUDIO_XFADE_END_MS = 60                 # 0.6.0 区間差し替えの終わり�
 TAIL_BLEND = 8                          # 0.6.0 区間差し替えの終わりで新しい絵 → 元の絵へ混ぜるコマ数
 SNAP_MAX_SEC = 0.3                      # 0.9.0 両側の文脈: 区間の始まり・戻る位置を元の音の切れ目へ寄せる最大の幅
 SNAP_WIN_SEC = 0.06                     # 0.9.0 切れ目を見る窓（位置の前後。この窓の中のいちばん大きい音で比べる）
+SNAP_SPEECH_SEC = 0.8                   # 0.10.0 始まりが台詞の途中なら、声の外へ出すためにここまで動かす
+SNAP_SPEECH_END_SEC = 1.3               # 0.10.0 戻る位置は 17 コマ刻みにも縛られるので少し広く
+SEG_FLOOR_DB = 12.0                     # 0.10.0 声とみなす音量: 雑音の床（下から 10%）＋この値
+SEG_RANGE_DB = 30.0                     #        と、いちばん大きい所−この値の、高い方
+SEG_GAP_SEC = 0.2                       # 0.10.0 これより短い切れ目は同じ台詞の中の息つぎとしてつなぐ
+SEG_MIN_SEC = 0.12                      # 0.10.0 これより短い声は捨てる（物音）
+SEG_PAD_SEC = 0.06                      # 0.10.0 区間の端をこれだけ声から離す
+ALIGN_SKIP = 0.5                        # 0.10.0 台詞に当てない声（笑いなど）を飛ばす罰（秒）
 SNAP_GAIN_DB = 6.0                      # 0.9.0 始まりと戻る所の音の合計がこれ以上静かになるときだけ寄せる
 SNAP_PENALTY_DB = 0.4                   # 0.9.0 指定から 1 コマずらすごとの罰（dB）。同じくらい静かなら指定に近い方
 TAIL_CTX_XFADE_MS = 200                 # 0.7.0 両側の文脈: 終わりの文脈の描き直し（音）と元の音を同じ時刻どうしで重ねる長さ
@@ -691,7 +699,8 @@ def _sections(text):
 
 def _sentences(text):
     import re
-    return [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z<\[\d])", (text or "").strip()) if x.strip()]
+    # 0.10.0 台詞の閉じ（</d>）の後ろでも切る（「…</d> 5.5-6.5s: …」が 1 文になり、次の拍が前の拍に吸われていた。セル188）
+    return [x.strip() for x in re.split(r"(?:(?<=[.!?])|(?<=</d>))\s+(?=[A-Z<\[\d])", (text or "").strip()) if x.strip()]
 
 
 _TIME_RE = None
@@ -714,11 +723,56 @@ def _time_end(text):
     return max(ends) if ends else None
 
 
+_SEG_CACHE = {}
+
+
+def speech_segments(src):
+    """0.10.0 元の動画の音から、声のある区間 [(始め, 終わり) 秒] を出す（30ms ごとの音量。雑音の床＋12dB か、いちばん大きい所−30dB の
+    高い方を声とみなし、0.2 秒より短い切れ目はつなぎ、0.12 秒より短い声は捨てる）。音が無ければ []。同じファイルは控えを使う"""
+    try:
+        key = (str(src), os.path.getmtime(src))
+    except OSError:
+        return []
+    if key in _SEG_CACHE:
+        return _SEG_CACHE[key]
+    sr = 16000
+    a = _read_audio(src, sr)
+    segs = []
+    if a is not None and a.shape[0] >= sr // 2:
+        a = a.mean(axis=1)
+        hop = int(sr * 0.03)
+        n = a.shape[0] // hop
+        db = 20.0 * np.log10(np.sqrt((a[:n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-10) + 1e-6)
+        db = np.convolve(db, np.ones(3) / 3, mode="same")
+        thr = max(float(np.percentile(db, 10)) + SEG_FLOOR_DB, float(db.max()) - SEG_RANGE_DB)
+        on = db > thr
+        i = 0
+        while i < n:
+            if on[i]:
+                j = i
+                while j < n and on[j]:
+                    j += 1
+                segs.append([i * 0.03, j * 0.03])
+                i = j
+            else:
+                i += 1
+        merged = []
+        for x in segs:
+            if merged and x[0] - merged[-1][1] < SEG_GAP_SEC:
+                merged[-1][1] = x[1]
+            else:
+                merged.append(x)
+        segs = [(round(x0, 3), round(x1, 3)) for x0, x1 in merged if x1 - x0 >= SEG_MIN_SEC]
+    _SEG_CACHE[key] = segs
+    return segs
+
+
 def plan_range(src, t, t_end, fps=24.0):
     """0.9.0 両側の文脈の区間を決める → (ti, E2, 寄せたか, 始まりの音 dB, 戻り際の音 dB)。
-    区間の長さは 17n−39 コマ刻みなので、始まり ti と戻る位置 E2（元へ戻る最初のコマ）を、それぞれ指定から ±SNAP_MAX_SEC の中で
-    動かして、元の音がいちばん静かな組を選ぶ（台詞の途中で切る・戻ると、言いかけの音に文字の無い声でつなごうとして破綻した。セル187）。
-    音が無い・読めないときは寄せない（区間は 17n−39 の格子で t_end 以上の最初）"""
+    区間の長さは 17n−39 コマ刻みなので、始まり ti と戻る位置 E2（元へ戻る最初のコマ）を一緒に動かす。
+    0.10.0 声のある区間（speech_segments）の外に置けるなら、ti は ±SNAP_SPEECH_SEC・E2 は ±SNAP_SPEECH_END_SEC まで動かして台詞の途中を避ける
+    （セル188: 指定 3.4 秒は 2 つ目の台詞の途中で、±0.3 秒の中の『いちばん静かな所』も台詞の中だった → 元の台詞と新しい台詞が両方入った）。
+    声の外に置けないときは 0.9.0 と同じく ±SNAP_MAX_SEC の中でいちばん静かな所。音が無い・読めないときは寄せない"""
     import math
     g = _g()
     ctx_n = int(g.get("MOTION_CTX_FRAMES", 22))
@@ -731,12 +785,13 @@ def plan_range(src, t, t_end, fps=24.0):
         while n17 >= 3 and ti - ctx_n + 17 * n17 + 5 > int(n_src):
             n17 -= 1
         return ti + 17 * n17 + 5 - 2 * ctx_n
+    p0 = plain(ti0)
     if not has_audio:
-        return ti0, plain(ti0), False, None, None
+        return ti0, p0, False, None, None
     sr = 16000
     a = _read_audio(src, sr)
     if a is None or a.shape[0] < sr:
-        return ti0, plain(ti0), False, None, None
+        return ti0, p0, False, None, None
     a = a.mean(axis=1)
     hop = int(sr * 0.01)
     env = np.sqrt(np.convolve(a * a, np.ones(hop) / hop, mode="same")[::hop] + 1e-10)
@@ -747,23 +802,88 @@ def plan_range(src, t, t_end, fps=24.0):
         r = SNAP_WIN_SEC / 0.01
         seg = db[max(0, int(c - r)):int(c + r) + 1]
         return float(seg.max()) if seg.size else -120.0
+    segs = speech_segments(src)
+
+    def in_speech(f):
+        x = f / fps
+        return any(s0 - SEG_PAD_SEC < x < s1 + SEG_PAD_SEC for s0, s1 in segs)
+
+    def search(k_ti, k_e2, score):
+        best = None
+        for ti in range(max(ctx_n, ti0 - k_ti), ti0 + k_ti + 1):
+            for n17 in range(3, 40):
+                E2 = ti + 17 * n17 + 5 - 2 * ctx_n
+                if ti - ctx_n + 17 * n17 + 5 > int(n_src):
+                    break
+                if abs(E2 - te0) > k_e2:
+                    continue
+                sc = score(ti, E2)
+                if sc is not None and (best is None or sc < best[0]):
+                    best = (sc, ti, E2)
+        return best
+    def target(f):
+        """台詞の中なら、近い方の端（前半なら台詞の前・後半なら台詞の後ろ）。外ならそのまま"""
+        x = f / fps
+        for s0, s1 in segs:
+            if s0 - SEG_PAD_SEC < x < s1 + SEG_PAD_SEC:
+                return (math.floor((s0 - SEG_PAD_SEC) * fps) if x < (s0 + s1) / 2
+                        else math.ceil((s1 + SEG_PAD_SEC) * fps))
+        return f
+    # (1) 声の外に置ける組。目標は台詞の近い方の端（始まりが台詞の前半なら、その台詞ごと作り直す）
+    if segs and (in_speech(ti0) or in_speech(te0)):
+        ks, ke = int(round(SNAP_SPEECH_SEC * fps)), int(round(SNAP_SPEECH_END_SEC * fps))
+        tt, te_t = target(ti0), target(te0)
+        b1 = search(ks, ke, lambda ti, E2: None if (in_speech(ti) or in_speech(E2) or E2 - ti < 17)
+                    else (abs(ti - tt) + abs(E2 - te_t)) + 0.01 * (loud(ti) + loud(E2)))
+        if b1 is not None:
+            _sc, ti, E2 = b1
+            return ti, E2, True, loud(ti), loud(E2)
+    # (2) 0.9.0 と同じ: ±SNAP_MAX_SEC の中でいちばん静かな所（6dB 以上静かになるときだけ）
     k = int(round(SNAP_MAX_SEC * fps))
-    best = None
-    for ti in range(max(ctx_n, ti0 - k), ti0 + k + 1):
-        for n17 in range(3, 40):
-            E2 = ti + 17 * n17 + 5 - 2 * ctx_n
-            if ti - ctx_n + 17 * n17 + 5 > int(n_src):
-                break
-            if abs(E2 - te0) > k:
-                continue
-            sc = loud(E2) + loud(ti) + SNAP_PENALTY_DB * (abs(ti - ti0) + abs(E2 - te0))
-            if best is None or sc < best[0]:
-                best = (sc, ti, E2)
-    p0 = plain(ti0)
+    best = search(k, k, lambda ti, E2: loud(E2) + loud(ti) + SNAP_PENALTY_DB * (abs(ti - ti0) + abs(E2 - te0)))
     if best is None or (loud(best[1]) + loud(best[2])) > (loud(ti0) + loud(p0)) - SNAP_GAIN_DB:
         return ti0, p0, False, loud(ti0), loud(p0)                # 寄せても静かにならないなら指定どおり
     _sc, ti, E2 = best
     return ti, E2, (ti != ti0 or E2 != p0), loud(ti), loud(E2)
+
+
+def align_beats(beats, segs):
+    """0.10.0 台詞の拍（<d> を含む拍）を、実際の声の区間へ順に当てる → {拍の番号: (始め, 終わり)}。
+    H3 はプロンプトの時刻どおりには話さない（セル188: 2 つ目の台詞は書いた 3.5〜5.5 秒ではなく 2.9〜4.1 秒）。
+    1 つの台詞が間で 2 つの区間に割れることも、台詞の無い声（笑い）があることもあるので、順番を保ったまま
+    『拍 1 つ ← 続いた区間いくつか』と『区間を飛ばす』の組み合わせで、時刻のずれ（秒）の合計がいちばん小さい当て方を選ぶ（動的計画法）"""
+    dl = [i for i, (sp, bt) in enumerate(beats) if sp is not None and "<d>" in bt]
+    m, n = len(dl), len(segs)
+    if not m or not n:
+        return {}
+    INF = float("inf")
+    cost = [[INF] * (n + 1) for _ in range(m + 1)]
+    back = [[None] * (n + 1) for _ in range(m + 1)]
+    cost[0][0] = 0.0
+    for i in range(m + 1):
+        for j in range(n + 1):
+            c = cost[i][j]
+            if c == INF:
+                continue
+            if j < n:                                             # 区間 j を飛ばす（台詞の無い声）
+                cc = c + ALIGN_SKIP + (segs[j][1] - segs[j][0])
+                if cc < cost[i][j + 1]:
+                    cost[i][j + 1], back[i][j + 1] = cc, (i, j, None)
+            if i < m:
+                b0, b1 = beats[dl[i]][0]
+                for k in range(j + 1, min(n, j + 3) + 1):          # 区間 j..k−1（3 つまで）を拍 i に
+                    cc = c + abs(segs[j][0] - b0) + abs(segs[k - 1][1] - b1)
+                    if cc < cost[i + 1][k]:
+                        cost[i + 1][k], back[i + 1][k] = cc, (i, j, k)
+    if cost[m][n] == INF:
+        return {}
+    out, i, j = {}, m, n
+    while i or j:
+        pi, pj, k = back[i][j]
+        if k is not None:
+            out[dl[pi]] = (segs[pj][0], segs[k - 1][1])
+        i, j = pi, pj
+    return out
 
 
 def _beat_span(text):
@@ -796,7 +916,7 @@ def _beats(sentences):
     return [(sp, " ".join(xs)) for sp, xs in out]
 
 
-def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None):
+def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None, segs=None, rng=None):
     """0.9.0 keep … 元の動画の時刻 [(始め, 終わり)] の窓。元の時刻つきの拍のうち、窓に重なるもの（＝文脈に映っている・鳴っている動きと台詞）を
     残し、新しいクリップの時刻（−off、0〜clip_sec に丸める）へ直して挙動の前後に時刻の順で入れる。cut … 挙動の前と後を分ける元の時刻（区間の始まり）。
     元のプロンプト＋「挙動だけ」の文 → 続きのプロンプト。action が節の見出しを持つ（全文を書いた）ならそのまま返す。
@@ -833,11 +953,31 @@ def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None
     # 0.9.0 ただし keep の窓（文脈の範囲）に重なる拍は残す（文脈の音で鳴っている台詞を文字でも渡す）
     before, after = [], []
     if windows:
-        for sp, bt in _beats(_sentences(post)):
-            if sp is None or not any(sp[0] < w1 and sp[1] >= w0 for w0, w1 in windows):
+        bts = _beats(_sentences(post))
+        # 0.10.0 台詞の拍は実際に話している時刻（声の区間）で判断し、その時刻で書く。台詞でない拍は直前の台詞と同じだけずらす
+        al = align_beats(bts, segs or [])
+        shift, spans = 0.0, []
+        for i, (sp, bt) in enumerate(bts):
+            if sp is None:
+                spans.append(None)
                 continue
-            bt2 = _shift_clip(bt, off, clip_sec)
-            (before if (cut is None or sp[0] < cut) else after).append(bt2)
+            if i in al:
+                shift = al[i][0] - sp[0]
+                spans.append(al[i])
+            else:
+                spans.append((sp[0] + shift, sp[1] + shift))
+        for i, (sp, bt) in enumerate(bts):
+            rs = spans[i]
+            if rs is None or not any(rs[0] < w1 and rs[1] >= w0 for w0, w1 in windows):
+                continue
+            # 0.10.0 区間（作り直す所）に半分以上入っている拍は残さない（そこは書いた挙動に置き換わる）
+            if rng is not None:
+                ln = max(1e-3, rs[1] - rs[0])
+                if max(0.0, min(rs[1], rng[1]) - max(rs[0], rng[0])) / ln >= 0.5:
+                    continue
+            bt2 = _retime(bt, sp, rs) if rs != sp else bt
+            bt2 = _shift_clip(bt2, off, clip_sec)
+            (before if (cut is None or rs[0] < cut) else after).append(bt2)
     ps = [x for x in _sentences(post) if not _has_time(x)]
     frame = ps[0] if ps else ""
     tail = [x for x in ps[1:] if ("camera" in x.lower() or x.lower().startswith("the shot ends")
@@ -923,6 +1063,28 @@ def tone_match(frames, ref_frames):
     return out, (float(lum[0]), float(lum[-1]))
 
 
+def _remap_times(text, a0, a1, b0, b1):
+    """0.10.0 「a-bs」の時刻のうち、指定の区間 [a0, a1] の近く（±0.5 秒）にあるものを、寄せた区間 [b0, b1] へ比例で写す"""
+    import re
+
+    def mp(x):
+        x = float(x)
+        if a0 - 0.5 <= x <= a1 + 0.5 and a1 > a0:
+            x = b0 + (min(max(x, a0), a1) - a0) * (b1 - b0) / (a1 - a0)
+        return f"{max(0.0, x):.2f}".rstrip("0").rstrip(".")
+    return re.sub(r"(?<![\d.:])(\d+(?:\.\d+)?)\s*[-–〜~]\s*(\d+(?:\.\d+)?)\s*s\b",
+                  lambda m: f"{mp(m.group(1))}-{mp(m.group(2))}s", text)
+
+
+def _retime(text, sp, rs):
+    """0.10.0 拍の頭の時刻（書いた sp）を実際の時刻 rs に書き換える（最初の「a-bs」だけ）"""
+    import re
+
+    def f(x):
+        return f"{max(0.0, x):.2f}".rstrip("0").rstrip(".")
+    return re.sub(r"(?<![\d.:])(\d+(?:\.\d+)?)\s*[-–〜~]\s*(\d+(?:\.\d+)?)\s*s\b", f"{f(rs[0])}-{f(rs[1])}s", text, count=1)
+
+
 def _shift_clip(text, off, clip_sec=None):
     """0.9.0 拍の時刻を −off して、新しいクリップの長さ（clip_sec）で頭打ちにする（「3.3-4.45s」→ 文脈の終わりを越えない）"""
     import re
@@ -982,6 +1144,8 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
                 pre.append(T("   区間を元の音の切れ目へ寄せました: 指定 {v0}〜{v1} 秒 → {v2}〜{v3} 秒（始まり {v4} dB・戻る所 {v5} dB）",
                              v0=f"{float(t):.2f}", v1=f"{float(t_end):.2f}", v2=f"{ti_ / fpsx:.2f}", v3=f"{e2_ / fpsx:.2f}",
                              v4=f"{d1:.0f}" if d1 is not None else "?", v5=f"{d2:.0f}" if d2 is not None else "?"))
+            if moved and prompt and not _sections(prompt)[0]:       # 0.10.0 挙動の文の時刻も寄せた区間へ写す（指定の区間 → 寄せた区間）
+                prompt = _remap_times(prompt, float(t), float(t_end), ti_ / fpsx, e2_ / fpsx)
             t, t_end = ti_ / fpsx, e2_ / fpsx
         except Exception as e:                                    # noqa: BLE001
             pre.append(T("⚠️ 音の切れ目を探せませんでした（指定どおりの区間で作ります）: {v0}", v0=f"{type(e).__name__}: {e}"))
@@ -1053,7 +1217,8 @@ def _retake_body(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
             cn = int(g.get("MOTION_CTX_FRAMES", 22))
             ti_, e2_ = int(round(float(t) * fpsx)), int(round(float(t_end) * fpsx))
             kw = dict(keep=[((ti_ - cn) / fpsx, ti_ / fpsx), (e2_ / fpsx, (e2_ + cn) / fpsx)], off=(ti_ - cn) / fpsx,
-                      clip_sec=(e2_ + cn - (ti_ - cn)) / fpsx, cut=ti_ / fpsx)
+                      clip_sec=(e2_ + cn - (ti_ - cn)) / fpsx, cut=ti_ / fpsx,
+                      segs=speech_segments(src), rng=(ti_ / fpsx, e2_ / fpsx))
         except Exception:                                         # noqa: BLE001
             kw = {}
     full = compose_prompt(str(m.get("prompt")), act, **kw)
