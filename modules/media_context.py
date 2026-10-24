@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -1005,9 +1005,14 @@ def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None
                 ln = max(1e-3, rs[1] - rs[0])
                 if max(0.0, min(rs[1], rng[1]) - max(rs[0], rng[0])) / ln >= 0.5:
                     continue
+            is_before = cut is None or rs[0] < cut
+            # 0.12.0 頭の文脈の台詞は書かない（文字で渡すと、文脈で言い終わった台詞を新しい部分の頭でもう一度言う。セル190: 「この本もう読んだ？」が 2 回。
+            #        #418 の『元のプロンプトのままだと最初の台詞を言い直す』と同じ）。戻り先（終わりの文脈）の台詞だけ渡す
+            if is_before and "<d>" in bt:
+                continue
             bt2 = _retime(bt, sp, rs) if rs != sp else bt
             bt2 = _shift_clip(bt2, off, clip_sec)
-            (before if (cut is None or rs[0] < cut) else after).append(bt2)
+            (before if is_before else after).append(bt2)
     # 0.11.0 区間差し替えでは、書いた台詞のほかに声を足さないと明記する（セル189: 書いた台詞のあと次の台詞までの間に「ほらね」を足した。
     #        セル187: 台詞を書かない区間で意味の無い声を出した）
     quiet = ""
