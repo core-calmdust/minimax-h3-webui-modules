@@ -12,6 +12,11 @@
       結果は 2 本: つないだもの（_retake.mp4）と新しい部分だけ（_retake_seg.mp4）。元のファイルは触らない。
 
 0.1.0 はエンジンだけ（UI はまだ）。本体からは module_service("media_context_retake") で呼ぶ。計測セル 180 で実機確認する。
+0.2.0: 計測セル 180 の利用者所見（2026-10-24）: 音声の文脈ありは音が自然につながるが、元の 5 秒のプロンプトのままなので
+       **最初のセリフをもう一度しゃべる**（新しいクリップを「0 秒から始まる動画」として作るため）。文脈なしは音が壊れる → 音声の文脈は常に使う。
+       → **原点シフト**（設計メモ 4.2）を試せるようにした: 新しいクリップの映像・音声の時刻（RoPE の時間）に「文脈の始まり＝t−22 コマ」の
+       秒数を足し、モデルには「元の動画の途中から先」として見せる。元のプロンプトの時刻の指定（0〜2 秒のセリフ等）が「済んだこと」になる見込み。
+       学習に無い見せ方（文章のすぐ後に映像が来ない）なので、計測セル 181 で ON/OFF を比べてから既定を決める。
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -24,7 +29,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 API = 1
 SLOTS = ()
 
@@ -33,6 +38,7 @@ AUDIO_WIN_BEFORE = 4.0                  # 音声の文脈を取るとき、t の
 AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコードする（窓の終わりの端の癖を文脈に入れない）
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 POLL_SEC = 0.5
+ROPE_PER_SEC = 40.0                     # 映像（5/3 × 24fps）と音声（40 潜在/秒）の RoPE の時間は、どちらも 1 秒 = 40
 
 I18N = {
     "🎬 Retake: {v0} の {v1} 秒から {v2} 秒ぶん作ります（文脈 {v3} コマ・音声 {v4}）": {
@@ -41,6 +47,11 @@ I18N = {
         "ko": "🎬 Retake: {v0} 의 {v1} 초부터 {v2} 초 분량을 만듭니다(문맥 {v3} 프레임·음성 {v4})"},
     "あり": {"en": "yes", "zh": "有", "ko": "있음"},
     "なし（元の動画に音が無い）": {"en": "none (the source has no audio)", "zh": "无（原视频没有音频）", "ko": "없음(원본 영상에 소리가 없음)"},
+    "なし（使わない指定）": {"en": "none (turned off)", "zh": "无（指定不使用）", "ko": "없음(사용하지 않도록 지정)"},
+    "   原点シフト: 新しいクリップを元の動画の {v0} 秒から先として作ります": {
+        "en": "   Origin shift: the new clip is made as the part of the source from {v0} s on",
+        "zh": "   原点平移：把新片段当作原视频 {v0} 秒之后的部分来生成",
+        "ko": "   원점 이동: 새 클립을 원본 영상의 {v0} 초 이후 부분으로 만듭니다"},
     "❌ t が早すぎます（文脈に {v0} コマ＝{v1} 秒以上が要ります）": {
         "en": "❌ t is too early (the context needs at least {v0} frames = {v1} s)",
         "zh": "❌ t 太靠前（上下文至少需要 {v0} 帧 = {v1} 秒）",
@@ -148,6 +159,44 @@ def audio_context(path, t, ctx_frames, fps=24.0):
     return z[..., end - m:end].contiguous()
 
 
+class origin_shift:
+    """with origin_shift(秒): 生成 1 回ぶん、文章より後ろの行（条件の映像・音声、生成する音声・映像）の RoPE の時間に 秒×40 を足す。
+    本体セル2 の `_LayoutStep.build_packed_sequence`（Motion Context の差し替え）を包む。本体セル3 の install_vsa_geo は
+    生成のたびに「いまの実体」から包み直すので、functools.wraps で元の署名を見せておく（列の内訳の控えがそのまま動く）"""
+
+    def __init__(self, sec):
+        self.sec = float(sec or 0.0)
+        self.ls = None
+        self.cur = None
+
+    def __enter__(self):
+        import functools
+        if self.sec <= 0:
+            return self
+        g = _g()
+        self.ls = g.get("_LayoutStep")
+        if self.ls is None:
+            return self
+        self.cur = self.ls.build_packed_sequence
+        raw = getattr(self.cur, "_h3_geo_raw", self.cur)
+        off = self.sec * ROPE_PER_SEC
+
+        @functools.wraps(raw)
+        def shifted(*a, **kw):
+            out = raw(*a, **kw)
+            tags = kw.get("text_token_tags", a[0] if a else None)
+            nt = int(tags.shape[0])
+            out[0][nt:, 0] += off
+            return out
+        self.ls.build_packed_sequence = staticmethod(shifted)
+        return self
+
+    def __exit__(self, *a):
+        if self.ls is not None and self.cur is not None:
+            self.ls.build_packed_sequence = staticmethod(getattr(self.cur, "__func__", self.cur))
+        return False
+
+
 class _null:
     def __enter__(self):
         return None
@@ -159,7 +208,8 @@ class _null:
 # ------------------------------------------------------------------
 #  Retake 本体
 # ------------------------------------------------------------------
-def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False):
+def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
+           shift=False):
     """src の t 秒から add_sec 秒を作り直す（extend=True なら t は動画の終わり）。
     (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す"""
     import torch
@@ -194,7 +244,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
         yield (T("❌ 動画を読めませんでした: {v0}", v0=f"{e}"), None)
         return
     aud = None
-    aud_note = T("なし（元の動画に音が無い）")
+    aud_note = T("なし（元の動画に音が無い）") if not has_audio else T("なし（使わない指定）")
     if use_audio and has_audio and g.get("MC_AUDIO", False):
         try:
             aud = audio_context(src, t_cut, ctx_n, fps)
@@ -205,6 +255,9 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
             aud = None
     lines.insert(0, T("🎬 Retake: {v0} の {v1} 秒から {v2} 秒ぶん作ります（文脈 {v3} コマ・音声 {v4}）",
                       v0=os.path.basename(src), v1=f"{t_cut:.2f}", v2=f"{(nf - ctx_n) / fps:.2f}", v3=ctx_n, v4=aud_note))
+    shift_sec = (ti - ctx_n) / fps if shift else 0.0
+    if shift_sec > 0:
+        lines.append(T("   原点シフト: 新しいクリップを元の動画の {v0} 秒から先として作ります", v0=f"{shift_sec:.2f}"))
     yield ("\n".join(lines), None)
 
     ok, msg = g["ensure_mode"](seg_mode)
@@ -222,8 +275,9 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
 
     def _worker():
         try:
-            box["res"] = g["_run_pipe"](seg_mode, prompt, w, h, nf, steps, int(seed), ctx_px[-1], None,
-                                        refs_by_kind, prog, mc_frames=ctx_px, mc_audio=aud)
+            with origin_shift(shift_sec):
+                box["res"] = g["_run_pipe"](seg_mode, prompt, w, h, nf, steps, int(seed), ctx_px[-1], None,
+                                            refs_by_kind, prog, mc_frames=ctx_px, mc_audio=aud)
         except BaseException as e:                                # noqa: BLE001
             box["err"] = e
 
@@ -289,7 +343,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
             g["log"](f"⚠️ Retake の音声をつなげませんでした: {e}")
     info = {"src": os.path.basename(src), "t": round(t_cut, 4), "frame": int(ti), "ctx": ctx_n,
             "new_frames": int(nf - ctx_n), "audio_ctx": int(aud.shape[-1]) if aud is not None else 0,
-            "extend": bool(extend), "module": f"{NAME} {VERSION}"}
+            "extend": bool(extend), "shift": round(shift_sec, 4), "module": f"{NAME} {VERSION}"}
     for p, kind in ((p_join, "joined"), (p_seg, "segment")):
         try:
             meta = g["build_meta"](mode, prompt, w, h, "", (nf - ctx_n) / fps, nf, steps, int(seed),
