@@ -11,7 +11,10 @@ LIBRARY のプレビューの下で、プルダウンで加工を選び「⬇ �
   ・Blocking（人物）… 利用者指定: 背景を取り除く: 背景の模様が邪魔になるので、人物だけを残す。人物の切り抜きは torchvision の
                DeepLabV3（mobilenet_v3_large、BSD-3。重みは PyTorch 公式から自動取得）の person、前後でならす。
                背景は灰 130 の一色、人物の輪郭に黒 27 の細い線（人物の灰と背景の灰が溶けないように）。しきい値は人物の中だけで決める
-  ・線画     … XDoG（差分ガウスの輪郭）。鉛筆の線画風の白地に黒線
+  ・線画     … 1.1.0 で作り直し（利用者の判断 2026-10-24「置き換えで」）。1.0 の XDoG は鉛筆の素描に近く、麺・髪・柄の質感まで
+               灰色の線になり、点のゴミ（線の塊の約 4 割が 8px 以下）とちらつきが多く、プレビズの参照には情報が多すぎた。
+               → Blocking と同じく 540p で縁を残すぼかし（質感を消す）→ 差分ガウスの輪郭 → 白黒の 2 値 → 小さい塊を消す →
+               元の大きさで 2〜3px の線（縦長も短い辺で同じ細かさ）。入力をコマ間でならす（ちらつき止め）。白 255 に黒 0 の線だけ
   ・深度マップ … Video Depth Anything **Small**（ByteDance、コード・重みとも Apache-2.0。Base／Large は CC-BY-NC なので使わない）。
                動画用の時間方向のつながりを持つモデルで、コマ間でちらつきにくい。手前ほど白
                コードは配布元の GitHub を**版固定**（コミット）で取り寄せて import する（写さない）。重みは HF から版固定で取る
@@ -29,7 +32,7 @@ import urllib.request
 import numpy as np
 
 NAME = "ref_filters"
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 API = 1
 SLOTS = ("lib_actions",)
 
@@ -41,7 +44,11 @@ BLOCK_EMA = 0.5                         # コマ間でならす割合（ちら�
 BLOCK_WORK_H = 540                      # ぼかしはこの高さに縮めてかける（両側フィルタが重い。形の細かさは変わらない）
 BG_LEVEL, BG_EDGE = 130, 27             # 背景なし: 背景の灰・輪郭の線
 MASK_EMA = 0.6                          # 人物マスクを前のコマとならす割合
-LINE_SIGMA = 1 / 768                    # XDoG のぼかし（画面の高さに対する割合。768p で 1.0px）
+LINE_SIGMA = 1.0                        # 1.1.0 輪郭を取るぼかし（作業の高さ BLOCK_WORK_H＝540 での px）
+LINE_THR = 0.006                        # 1.1.0 これより暗い側に振れた所だけを線に（大きいほど線が減る）
+LINE_MIN_AREA = 40                      # 1.1.0 これより小さい線の塊は消す（540p での px 数。点のゴミ・細かい質感）
+LINE_EMA = 0.5                          # 1.1.0 入力をコマ間でならす割合（ちらつき止め）
+LINE_BILATERAL = 25                     # 1.1.0 縁を残すぼかしの色の幅（大きいほど面の質感が消える）
 DEPTH_REPO = "DepthAnything/Video-Depth-Anything"
 DEPTH_COMMIT = "4f5ae23172ba60fd7bc11ef671cca678842c7072"
 DEPTH_HF = ("depth-anything/Video-Depth-Anything-Small", "256875362cff76724b920335dfb4b29dd611f66e",
@@ -203,14 +210,29 @@ def _block_quant(gf, t0, t1):
     return np.asarray(BLOCK_LEVELS, np.uint8)[q]
 
 
-def _line(rgb):
-    """XDoG: 白地に黒線"""
+def _line_pre(rgb):
+    """線画の下ごしらえ: 短い辺を 540 に縮めて縁を残すぼかし（面の質感を消す）→ 0〜1 の灰色。
+    縦長（768×1376 など）でも細かさが同じになるように、高さではなく短い辺で縮める"""
     import cv2
-    g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
-    s = max(0.6, g.shape[0] * LINE_SIGMA)
-    d = cv2.GaussianBlur(g, (0, 0), s) - 0.98 * cv2.GaussianBlur(g, (0, 0), s * 1.6)
-    e = np.where(d >= 0.0, 1.0, 1.0 + np.tanh(40.0 * d))
-    return (e * 255.0).clip(0, 255).astype(np.uint8)
+    g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    h, w = g.shape
+    k = min(1.0, BLOCK_WORK_H / min(h, w))
+    sm = cv2.resize(g, (max(1, int(round(w * k))), max(1, int(round(h * k)))), interpolation=cv2.INTER_AREA) if k < 1 else g
+    return cv2.bilateralFilter(sm, 0, LINE_BILATERAL, 3).astype(np.float32) / 255.0
+
+
+def _line(gf, hw):
+    """下ごしらえ済みの灰色 gf → 元の大きさ hw の白地に黒線（2 値。768p で約 2〜3px）"""
+    import cv2
+    d = cv2.GaussianBlur(gf, (0, 0), LINE_SIGMA) - cv2.GaussianBlur(gf, (0, 0), LINE_SIGMA * 1.6)
+    ink = (d < -LINE_THR).astype(np.uint8)
+    n, lab, st, _c = cv2.connectedComponentsWithStats(ink, 8)
+    keep = np.zeros(n, bool)
+    keep[1:] = st[1:, cv2.CC_STAT_AREA] >= LINE_MIN_AREA * (min(gf.shape) / BLOCK_WORK_H) ** 2
+    h, w = hw
+    m = (cv2.resize(keep[lab].astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) > 0.5).astype(np.uint8)
+    # 太らせない: 540 で 1.5〜2px の線を元の大きさへ伸ばすだけで、768p で 2〜3px・1080p で 3〜4px になる（太らせると 1080p で 5〜6px と太すぎた）
+    return cv2.GaussianBlur(np.where(m > 0, 0, 255).astype(np.uint8), (0, 0), 0.6)   # 縁だけ軽くなじませる
 
 
 # ------------------------------------------------------------------
@@ -355,7 +377,7 @@ def convert(path, mode):
             if m is not None:
                 g8 = _apply_bg(g8, m)
         elif mode == "line":
-            g8 = _line(rgb)
+            g8 = _line(_line_pre(rgb), rgb.shape[:2])
         else:
             g8 = _depth_chunk(_depth_model(), [rgb], 24.0, rgb.shape[:2])[0]   # 1 コマでも配布元が足りない分を複製して埋める
         cv2.imwrite(out, g8)
@@ -396,8 +418,13 @@ def convert(path, mode):
                     q8 = _apply_bg(q8, pm)
                 wr.put(q8[:h2, :w2])
         elif mode == "line":
+            prev = None
             for rgb in _frames(path):
-                wr.put(_line(rgb)[:h2, :w2])
+                gf = _line_pre(rgb)
+                if prev is not None and LINE_EMA > 0:
+                    gf = LINE_EMA * prev + (1 - LINE_EMA) * gf
+                prev = gf
+                wr.put(_line(gf, rgb.shape[:2])[:h2, :w2])
         else:
             m = _depth_model()
             buf = []
