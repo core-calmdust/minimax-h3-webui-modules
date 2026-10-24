@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.14.0"
+VERSION = "0.15.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -387,6 +387,39 @@ class _null:
 # ------------------------------------------------------------------
 #  Retake 本体
 # ------------------------------------------------------------------
+def morph_blend(seq, prev, m):
+    """0.15.0 継ぎ目の宿題 ②: 元のコマ（prev）から新しいコマ（seq の先頭 m 枚）へ、形を寄せながら混ぜる → 本体 _blend_head と同じ形の並び。
+    ふつうの混ぜ方は同じ位置の画素を重ねるので、表情・口の形が違うと二重になって t で『飛ぶ』。ここでは 1 枚ごとに
+    元→新のオプティカルフロー（Farneback・幅 480 で求めて元の大きさへ）を取り、元を w だけ・新を (1−w) だけ逆向きに動かしてから重ねる
+    （w は smoothstep で 0→1）。動きの向きは近似（目標の格子でのフロー）なので、大きく動く所は少しぼける"""
+    import cv2
+    from PIL import Image
+    m = int(min(m, len(prev), len(seq)))
+    if m <= 1:
+        return list(seq)
+    out = []
+    w_ = np.linspace(0.0, 1.0, m, dtype=np.float32)
+    w_ = w_ * w_ * (3.0 - 2.0 * w_)
+    for i in range(m):
+        nw = np.asarray(seq[i].convert("RGB") if isinstance(seq[i], Image.Image) else seq[i], dtype=np.uint8)
+        ow = np.asarray(prev[i], dtype=np.uint8)
+        H, W = nw.shape[:2]
+        sc = min(1.0, 480.0 / W)
+        sz = (max(16, int(W * sc)), max(16, int(H * sc)))
+        g0 = cv2.cvtColor(cv2.resize(ow, sz, interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2GRAY)
+        g1 = cv2.cvtColor(cv2.resize(nw, sz, interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2GRAY)
+        fl = cv2.calcOpticalFlowFarneback(g0, g1, None, 0.5, 4, 21, 3, 5, 1.1, 0)
+        fl = cv2.resize(fl, (W, H), interpolation=cv2.INTER_LINEAR) / sc
+        gx, gy = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
+        w = float(w_[i])
+        ow2 = cv2.remap(ow, gx - w * fl[..., 0], gy - w * fl[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        nw2 = cv2.remap(nw, gx + (1.0 - w) * fl[..., 0], gy + (1.0 - w) * fl[..., 1], cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_REPLICATE)
+        mix = np.clip((1.0 - w) * ow2.astype(np.float32) + w * nw2.astype(np.float32), 0, 255).astype(np.uint8)
+        out.append(Image.fromarray(mix))
+    return out + list(seq[m:])
+
+
 def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
                  shift=False, out_dir=None, tone=True, blend=None, t_end=None, end_key=True, tail_ctx=False):
     """0.7.0 tail_ctx … 区間差し替えで、元の t_end から後ろの 22 コマと音も新しいクリップの終わりに文脈として置く（両側の文脈）。
@@ -400,6 +433,10 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
     T = _T
     fps = float(g.get("FPS", 24))
     ctx_n = int(g.get("MOTION_CTX_FRAMES", 22))
+    # 0.15.0 計測用: 頭の文脈のコマ数を変える（17n+5。継ぎ目の宿題 ①）。区間差し替え（両側の文脈）は 22 のまま
+    _cf = int(_ST.get("ctx_frames") or 0)
+    if _cf and not (t_end is not None and tail_ctx) and _cf >= 5 and (_cf - 5) % 17 == 0:
+        ctx_n = _cf
     try:
         w, h, n_src, fps_src, has_audio = g["_probe_video"](src)
         if w <= 0 or h <= 0 or n_src <= 0:
@@ -565,7 +602,10 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
             lines.append(T("⚠️ 明るさ合わせに失敗しました（そのまま書き出します）: {v0}", v0=f"{e}"))
     # 先頭 22 コマ（文脈の描き直し）のうち最後の L コマを元のコマと滑らかに混ぜる。L＝0 なら t で切り替え（元は t まで全部使う）
     L = min(ctx_n, BLEND_DEFAULT) if blend is None else max(0, min(ctx_n, int(blend)))
-    joined_head = g["_blend_head"](frames[ctx_n - L:], ctx_px[ctx_n - L:], L) if L > 0 else frames[ctx_n:]
+    if L > 0 and _ST.get("blend_mode") == "morph":              # 0.15.0 計測用: 形を寄せながら混ぜる（継ぎ目の宿題 ②）
+        joined_head = morph_blend(frames[ctx_n - L:], ctx_px[ctx_n - L:], L)
+    else:
+        joined_head = g["_blend_head"](frames[ctx_n - L:], ctx_px[ctx_n - L:], L) if L > 0 else frames[ctx_n:]
     if E is not None and end_px is not None:                      # 0.6.0 終わりの 8 コマで新しい絵 → 元の絵へ（最後のコマ＝元の E）
         K = TAIL_BLEND
         tail = g["_blend_head"]([Image.fromarray(x) for x in end_px], [np.asarray(f) for f in frames[nf - K:nf]], K)
@@ -648,6 +688,7 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
     info = {"src": os.path.basename(src), "t": round(t_cut, 4), "frame": int(ti), "ctx": ctx_n,
             "new_frames": int(nf - ctx_n), "audio_ctx": int(aud.shape[-1]) if aud is not None else 0,
             "extend": bool(extend), "shift": round(shift_sec, 4), "tone": bool(tone), "blend": int(L),
+            "blend_mode": str(_ST.get("blend_mode") or "blend"),
             "range_end": (int(E) if E is not None else (int(E2) - 1 if E2 is not None else None)),
             "end_key": bool(end_key and E is not None), "tail_ctx": bool(E2 is not None),
             "tail_audio": int(tail_aud.shape[-1]) if tail_aud is not None else 0,
@@ -1173,12 +1214,14 @@ def shift_times(text, off):
 
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
            shift=False, out_dir=None, inherit=False, tone=True, blend=None, turbo=None, t_end=None, end_key=True,
-           tail_ctx=False, snap=True, keep_lines=True):
+           tail_ctx=False, snap=True, keep_lines=True, ctx_frames=None, blend_mode=None):
     """0.9.0 両側の文脈の区間差し替えは、先に区間の始まりと戻る位置を元の音の切れ目へ寄せてから作る（plan_range）。
     snap / keep_lines … 計測用の切り替え（音の切れ目へ寄せる／文脈の範囲の元の拍を残す）。ふだんはどちらも True"""
     T = _T
     pre = []
     _ST["keep_lines"] = bool(keep_lines)
+    _ST["ctx_frames"] = int(ctx_frames or 0)                      # 0.15.0 計測用（継ぎ目の宿題）。0 なら本体の MOTION_CTX_FRAMES
+    _ST["blend_mode"] = str(blend_mode or "blend")
     if t_end is not None and tail_ctx and not extend and snap:
         try:
             fpsx = float(_g().get("FPS", 24))
@@ -1513,6 +1556,7 @@ def setup(ctx):
     ctx.provide("media_context_retake", retake)
     ctx.provide("media_context_audio", audio_context)
     ctx.provide("media_context_tone", tone_match)                 # 0.3.4 計測セルが 1 回の生成から何通りも作るため
+    ctx.provide("media_context_morph", morph_blend)               # 0.15.0 計測セルが 1 回の生成から混ぜ方を何通りも作るため
     try:
         CSS = "\n/* ---- RETAKE（media_context。SEGMENTS の写し） ---- */\n" + _mirror_css(ctx.g.get("CUSTOM_CSS", "")) + CSS_EXTRA
     except Exception:                                             # noqa: BLE001
