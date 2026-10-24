@@ -29,7 +29,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 API = 1
 SLOTS = ()
 
@@ -209,9 +209,10 @@ class _null:
 #  Retake 本体
 # ------------------------------------------------------------------
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-           shift=False):
+           shift=False, out_dir=None):
     """src の t 秒から add_sec 秒を作り直す（extend=True なら t は動画の終わり）。
-    (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す"""
+    (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す
+    out_dir … 0.2.1 書き出し先のフォルダ（計測セルは /content/tNNN/ を渡す。そのときは Drive へ写さない）。None なら /content（LIBRARY に出る）"""
     import torch
     from PIL import Image
     g = _g()
@@ -310,7 +311,9 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
               for f in frames]
     joined_head = g["_blend_head"](frames, ctx_px, ctx_n)         # 先頭 22 コマ（文脈の描き直し）を元の 22 コマへ滑らかに
     stamp = datetime.datetime.now().strftime("%H%M%S")
-    base = f"/content/minimax_h3_retake_{stamp}_{int(seed)}"
+    od = str(out_dir) if out_dir else "/content"
+    os.makedirs(od, exist_ok=True)
+    base = os.path.join(od, f"minimax_h3_retake_{stamp}_{int(seed)}")
     p_join, p_seg = base + ".mp4", base + "_seg.mp4"
     g["export_to_video"](frames[ctx_n:], p_seg, fps=int(fps))
     _write_joined(src, w, h, ti - ctx_n, joined_head, p_join, fps)
@@ -353,7 +356,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
             g["write_meta"](p, meta)
         except Exception as e:                                    # noqa: BLE001
             g["log"](f"⚠️ Retake のメタを書けませんでした: {e}")
-        if g.get("SAVE_TO_DRIVE") and g.get("OUT_DIR"):
+        if not out_dir and g.get("SAVE_TO_DRIVE") and g.get("OUT_DIR"):
             try:
                 import shutil
                 shutil.copy2(p, os.path.join(g["OUT_DIR"], os.path.basename(p)))
