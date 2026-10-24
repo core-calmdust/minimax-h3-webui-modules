@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.15.0"
+VERSION = "0.15.1"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -1290,7 +1290,11 @@ def _retake_body(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
             _w, _h, _n, _f, _a = g["_probe_video"](src)
             fpsx = float(g.get("FPS", 24))
             ti = int(_n) if extend else int(round(float(t) * fpsx))
-            act, nt = shift_times(prompt, (ti - int(g.get("MOTION_CTX_FRAMES", 22))) / fpsx)
+            _cn = int(g.get("MOTION_CTX_FRAMES", 22))
+            _cf = int(_ST.get("ctx_frames") or 0)               # 0.15.0 計測用の文脈の長さ（core と同じ条件で効く）
+            if _cf and not (t_end is not None and tail_ctx) and _cf >= 5 and (_cf - 5) % 17 == 0:
+                _cn = _cf
+            act, nt = shift_times(prompt, (ti - _cn) / fpsx)
             if nt:
                 notes.append(T("   時刻の指定 {v0} か所を、新しいクリップの時刻へずらしました（つないだ動画の時刻として読みます）", v0=nt))
             te = _time_end(prompt)                                # 0.4.1 書いた時刻の終わりまで入るように延ばす
