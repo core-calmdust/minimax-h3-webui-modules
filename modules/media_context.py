@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -92,6 +92,10 @@ AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコ
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 AUDIO_XFADE_END_MS = 60                 # 0.6.0 区間差し替えの終わりで新しい音 → 元の音へ戻すクロスフェード
 TAIL_BLEND = 8                          # 0.6.0 区間差し替えの終わりで新しい絵 → 元の絵へ混ぜるコマ数
+SNAP_MAX_SEC = 0.3                      # 0.9.0 両側の文脈: 区間の始まり・戻る位置を元の音の切れ目へ寄せる最大の幅
+SNAP_WIN_SEC = 0.06                     # 0.9.0 切れ目を見る窓（位置の前後。この窓の中のいちばん大きい音で比べる）
+SNAP_GAIN_DB = 6.0                      # 0.9.0 始まりと戻る所の音の合計がこれ以上静かになるときだけ寄せる
+SNAP_PENALTY_DB = 0.4                   # 0.9.0 指定から 1 コマずらすごとの罰（dB）。同じくらい静かなら指定に近い方
 TAIL_CTX_XFADE_MS = 200                 # 0.7.0 両側の文脈: 終わりの文脈の描き直し（音）と元の音を同じ時刻どうしで重ねる長さ
 POLL_SEC = 0.5
 BLEND_DEFAULT = 8                       # 0.3.6 元と描き直しを混ぜるコマ数（t の直前の 8 コマ。セル185 v2・利用者の目で決定）
@@ -108,6 +112,14 @@ I18N = {
         "ko": "🎬 Retake: {v0} 의 {v1} 초부터 {v2} 초 분량을 만듭니다(문맥 {v3} 프레임·음성 {v4})"},
     "あり": {"en": "yes", "zh": "有", "ko": "있음"},
     "前後あり": {"en": "before and after", "zh": "前后都有", "ko": "앞뒤 모두"},
+    "   区間を元の音の切れ目へ寄せました: 指定 {v0}〜{v1} 秒 → {v2}〜{v3} 秒（始まり {v4} dB・戻る所 {v5} dB）": {
+        "en": "   Moved the range to pauses in the source audio: {v0}–{v1} s → {v2}–{v3} s (start {v4} dB, return {v5} dB)",
+        "zh": "   已将区间移到原音频的停顿处：指定 {v0}〜{v1} 秒 → {v2}〜{v3} 秒（开始 {v4} dB・返回处 {v5} dB）",
+        "ko": "   구간을 원본 음성의 끊김으로 옮겼습니다: 지정 {v0}〜{v1} 초 → {v2}〜{v3} 초(시작 {v4} dB・돌아가는 곳 {v5} dB)"},
+    "⚠️ 音の切れ目を探せませんでした（指定どおりの区間で作ります）: {v0}": {
+        "en": "⚠️ Could not look for pauses in the audio (using the range as given): {v0}",
+        "zh": "⚠️ 无法查找音频的停顿（按指定区间生成）：{v0}",
+        "ko": "⚠️ 음성의 끊김을 찾을 수 없었습니다(지정한 구간으로 만듭니다): {v0}"},
     "参照": {"en": "References", "zh": "参考", "ko": "참조"},
     "参照ファイル": {"en": "Reference files", "zh": "参考文件", "ko": "참조 파일"},
     "元の動画は参照も RefMod も使っていません": {"en": "The source uses no references or RefMods",
@@ -702,11 +714,96 @@ def _time_end(text):
     return max(ends) if ends else None
 
 
-def compose_prompt(original, action):
-    """元のプロンプト＋「挙動だけ」の文 → 続きのプロンプト。action が節の見出しを持つ（全文を書いた）ならそのまま返す。
+def plan_range(src, t, t_end, fps=24.0):
+    """0.9.0 両側の文脈の区間を決める → (ti, E2, 寄せたか, 始まりの音 dB, 戻り際の音 dB)。
+    区間の長さは 17n−39 コマ刻みなので、始まり ti と戻る位置 E2（元へ戻る最初のコマ）を、それぞれ指定から ±SNAP_MAX_SEC の中で
+    動かして、元の音がいちばん静かな組を選ぶ（台詞の途中で切る・戻ると、言いかけの音に文字の無い声でつなごうとして破綻した。セル187）。
+    音が無い・読めないときは寄せない（区間は 17n−39 の格子で t_end 以上の最初）"""
+    import math
+    g = _g()
+    ctx_n = int(g.get("MOTION_CTX_FRAMES", 22))
+    w, h, n_src, _f, has_audio = g["_probe_video"](src)
+    ti0 = int(round(float(t) * fps))
+    te0 = min(int(round(float(t_end) * fps)), int(n_src) - ctx_n)   # 元の終わりを越えない所まで
+
+    def plain(ti):
+        n17 = max(3, math.ceil((te0 - ti + 2 * ctx_n - 5) / 17))
+        while n17 >= 3 and ti - ctx_n + 17 * n17 + 5 > int(n_src):
+            n17 -= 1
+        return ti + 17 * n17 + 5 - 2 * ctx_n
+    if not has_audio:
+        return ti0, plain(ti0), False, None, None
+    sr = 16000
+    a = _read_audio(src, sr)
+    if a is None or a.shape[0] < sr:
+        return ti0, plain(ti0), False, None, None
+    a = a.mean(axis=1)
+    hop = int(sr * 0.01)
+    env = np.sqrt(np.convolve(a * a, np.ones(hop) / hop, mode="same")[::hop] + 1e-10)
+    db = 20.0 * np.log10(env + 1e-6)
+
+    def loud(f):
+        c = f / fps / 0.01
+        r = SNAP_WIN_SEC / 0.01
+        seg = db[max(0, int(c - r)):int(c + r) + 1]
+        return float(seg.max()) if seg.size else -120.0
+    k = int(round(SNAP_MAX_SEC * fps))
+    best = None
+    for ti in range(max(ctx_n, ti0 - k), ti0 + k + 1):
+        for n17 in range(3, 40):
+            E2 = ti + 17 * n17 + 5 - 2 * ctx_n
+            if ti - ctx_n + 17 * n17 + 5 > int(n_src):
+                break
+            if abs(E2 - te0) > k:
+                continue
+            sc = loud(E2) + loud(ti) + SNAP_PENALTY_DB * (abs(ti - ti0) + abs(E2 - te0))
+            if best is None or sc < best[0]:
+                best = (sc, ti, E2)
+    p0 = plain(ti0)
+    if best is None or (loud(best[1]) + loud(best[2])) > (loud(ti0) + loud(p0)) - SNAP_GAIN_DB:
+        return ti0, p0, False, loud(ti0), loud(p0)                # 寄せても静かにならないなら指定どおり
+    _sc, ti, E2 = best
+    return ti, E2, (ti != ti0 or E2 != p0), loud(ti), loud(E2)
+
+
+def _beat_span(text):
+    """拍（時刻つきの文で始まるひとまとまり）の時刻 → (始め, 終わり) 秒。無ければ None"""
+    import re
+    m = re.search(r"(?<![\d.:])(\d+(?:\.\d+)?)\s*[-–〜~]\s*(\d+(?:\.\d+)?)\s*s\b", text or "")
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    m = re.search(r"(?<![\d.:])(\d{1,2}):(\d{2}(?:\.\d{1,3})?)(?![\d:])", text or "")
+    if m:
+        x = int(m.group(1)) * 60 + float(m.group(2))
+        return x, x
+    return None
+
+
+def _beats(sentences):
+    """文の並び → 拍の並び [(時刻 or None, 文)]。時刻つきの文から次の時刻つきの文の手前までを 1 拍にする
+    （「2-4s: A がカップを取る。She says <d>…</d>.」の台詞の文は時刻を持たないので、前の拍に付ける）"""
+    out = []
+    for x in sentences:
+        lx = x.lower()
+        if not _has_time(x) and ("camera" in lx or lx.startswith("the shot ends") or lx.startswith("hands stay")):
+            out.append([None, [x]])                               # カメラ・終わり方の文は拍に含めない（compose_prompt が別に付ける）
+            continue
+        sp = _beat_span(x) if _has_time(x) else None
+        if sp is not None or not out:
+            out.append([sp, [x]])
+        else:
+            out[-1][1].append(x)
+    return [(sp, " ".join(xs)) for sp, xs in out]
+
+
+def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None):
+    """0.9.0 keep … 元の動画の時刻 [(始め, 終わり)] の窓。元の時刻つきの拍のうち、窓に重なるもの（＝文脈に映っている・鳴っている動きと台詞）を
+    残し、新しいクリップの時刻（−off、0〜clip_sec に丸める）へ直して挙動の前後に時刻の順で入れる。cut … 挙動の前と後を分ける元の時刻（区間の始まり）。
+    元のプロンプト＋「挙動だけ」の文 → 続きのプロンプト。action が節の見出しを持つ（全文を書いた）ならそのまま返す。
     人物の定義・保持の分析・音の節は元のまま。summary と detailed_description は、元から場所・光・構図・カメラ・終わり方の文だけ残して
     間に action を入れる。元が節の形でなければ「同じ人・同じ場所」の一文を前に付けるだけ"""
     action = (action or "").strip()
+    windows = list(keep or [])                                    # 下の summary で keep という名前を使うので控える
     order, sec = _sections(original or "")
     if not action or _sections(action)[0]:
         return action or (original or "")
@@ -733,6 +830,14 @@ def compose_prompt(original, action):
     if not mark:
         pre, post = "", dd
     # 0.4.1 時刻つきの文（0-5s: … など。元のタイムラインの動き）は持ち込まない
+    # 0.9.0 ただし keep の窓（文脈の範囲）に重なる拍は残す（文脈の音で鳴っている台詞を文字でも渡す）
+    before, after = [], []
+    if windows:
+        for sp, bt in _beats(_sentences(post)):
+            if sp is None or not any(sp[0] < w1 and sp[1] >= w0 for w0, w1 in windows):
+                continue
+            bt2 = _shift_clip(bt, off, clip_sec)
+            (before if (cut is None or sp[0] < cut) else after).append(bt2)
     ps = [x for x in _sentences(post) if not _has_time(x)]
     frame = ps[0] if ps else ""
     tail = [x for x in ps[1:] if ("camera" in x.lower() or x.lower().startswith("the shot ends")
@@ -740,7 +845,7 @@ def compose_prompt(original, action):
     if _has_time(pre):
         pre = " ".join(x for x in _sentences(pre) if not _has_time(x))
     out["detailed_description"] = " ".join(y for y in (pre.strip(), "[Shot 1] " + ("The same framing continues — " + frame if frame else "").strip(),
-                                                        action, " ".join(tail)) if y).replace("  ", " ")
+                                                        " ".join(before), action, " ".join(after), " ".join(tail)) if y).replace("  ", " ")
     return "\n\n".join(f"{k}:\n{out[k]}" for k in order)
 
 
@@ -818,6 +923,20 @@ def tone_match(frames, ref_frames):
     return out, (float(lum[0]), float(lum[-1]))
 
 
+def _shift_clip(text, off, clip_sec=None):
+    """0.9.0 拍の時刻を −off して、新しいクリップの長さ（clip_sec）で頭打ちにする（「3.3-4.45s」→ 文脈の終わりを越えない）"""
+    import re
+    t2, _n = shift_times(text, off)
+    if clip_sec is None:
+        return t2
+
+    def cap(m):
+        a = min(float(m.group(1)), clip_sec)
+        b = min(float(m.group(2)), clip_sec)
+        return f"{a:.2f}".rstrip("0").rstrip(".") + "-" + f"{b:.2f}".rstrip("0").rstrip(".") + "s"
+    return re.sub(r"(?<![\d.:])(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)s\b", cap, t2)
+
+
 def shift_times(text, off):
     """挙動の文の時刻（つないだ動画の時刻）を新しいクリップの時刻（文脈の始まりが 0 秒）へずらす。
     「6-8s」「6.5〜8s」の形と「00:06」「0:06.500」の形（分:秒）を直す。0 秒より前は 0 にする"""
@@ -849,7 +968,35 @@ def shift_times(text, off):
 
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
            shift=False, out_dir=None, inherit=False, tone=True, blend=None, turbo=None, t_end=None, end_key=True,
-           tail_ctx=False):
+           tail_ctx=False, snap=True, keep_lines=True):
+    """0.9.0 両側の文脈の区間差し替えは、先に区間の始まりと戻る位置を元の音の切れ目へ寄せてから作る（plan_range）。
+    snap / keep_lines … 計測用の切り替え（音の切れ目へ寄せる／文脈の範囲の元の拍を残す）。ふだんはどちらも True"""
+    T = _T
+    pre = []
+    _ST["keep_lines"] = bool(keep_lines)
+    if t_end is not None and tail_ctx and not extend and snap:
+        try:
+            fpsx = float(_g().get("FPS", 24))
+            ti_, e2_, moved, d1, d2 = plan_range(src, t, t_end, fpsx)
+            if moved:
+                pre.append(T("   区間を元の音の切れ目へ寄せました: 指定 {v0}〜{v1} 秒 → {v2}〜{v3} 秒（始まり {v4} dB・戻る所 {v5} dB）",
+                             v0=f"{float(t):.2f}", v1=f"{float(t_end):.2f}", v2=f"{ti_ / fpsx:.2f}", v3=f"{e2_ / fpsx:.2f}",
+                             v4=f"{d1:.0f}" if d1 is not None else "?", v5=f"{d2:.0f}" if d2 is not None else "?"))
+            t, t_end = ti_ / fpsx, e2_ / fpsx
+        except Exception as e:                                    # noqa: BLE001
+            pre.append(T("⚠️ 音の切れ目を探せませんでした（指定どおりの区間で作ります）: {v0}", v0=f"{type(e).__name__}: {e}"))
+    it = _retake_body(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, inherit,
+                      tone, blend, turbo, t_end, end_key, tail_ctx)
+    if not pre:
+        yield from it
+        return
+    for st, r in it:
+        yield ("\n".join(pre + [st]) if st else st), r
+
+
+def _retake_body(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
+                 shift=False, out_dir=None, inherit=False, tone=True, blend=None, turbo=None, t_end=None, end_key=True,
+                 tail_ctx=False):
     """0.5.0 turbo … Turbo LoRA の名前（空なら inherit のときは元のもの、そうでなければいまのもの）。選ぶと Steps はその LoRA の既定。
     Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
     prompt が「挙動だけ」なら元のプロンプトと合わせる（compose_prompt）。生成が終われば本体の選択は元に戻す"""
@@ -899,7 +1046,17 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
                 notes.append(T("   書いた時刻（〜{v0} 秒）まで入るように、足す長さを {v1} 秒にしました", v0=f"{te:g}", v1=f"{add_sec:.1f}"))
         except Exception:                                         # noqa: BLE001
             act = prompt
-    full = compose_prompt(str(m.get("prompt")), act)
+    kw = {}
+    if t_end is not None and tail_ctx and not extend and _ST.get("keep_lines", True):   # 0.9.0 文脈の範囲で話している元の拍（台詞）を残す
+        try:
+            fpsx = float(g.get("FPS", 24))
+            cn = int(g.get("MOTION_CTX_FRAMES", 22))
+            ti_, e2_ = int(round(float(t) * fpsx)), int(round(float(t_end) * fpsx))
+            kw = dict(keep=[((ti_ - cn) / fpsx, ti_ / fpsx), (e2_ / fpsx, (e2_ + cn) / fpsx)], off=(ti_ - cn) / fpsx,
+                      clip_sec=(e2_ + cn - (ti_ - cn)) / fpsx, cut=ti_ / fpsx)
+        except Exception:                                         # noqa: BLE001
+            kw = {}
+    full = compose_prompt(str(m.get("prompt")), act, **kw)
     if full != (prompt or "").strip():
         notes.append(T("🧩 元のプロンプトの人物・場所・構図・音を残し、書いた挙動を入れて続きのプロンプトを組みました"))
     mode = m_mode or mode
