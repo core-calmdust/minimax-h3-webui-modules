@@ -25,6 +25,12 @@
          ・プロンプト … 書いたのが「挙動だけ」（節の見出しが無い文）なら compose_prompt で元のプロンプトと合わせる:
            人物の定義・保持の分析・音の節は元のまま、summary は元の場所の文＋「同じ人・同じ場所で直前から続く」、
            detailed_description は元の光・場所の文＋[Shot 1] の構図の文＋書いた挙動＋元のカメラと終わり方の文
+0.3.1: セル183 の利用者所見「やや暗めになる。lightx2v の Ref 版はどれもその傾向」。測ると（183 の出力）明るさ（灰色の平均）が
+       文脈 60.8 → 新しい部分の前半 54.0・後半 50.1、明るい所（上位 5%）167→144、しかも文脈が終わった直後の 1 コマで 59.8→55.9 と段差。
+       → **明るさ合わせ（tone、既定 ON）**: 新しい部分の各コマに、文脈（元の 22 コマ）の明るさ ÷ そのコマの明るさの流れ を掛ける。
+         流れは 1 秒（25 コマ）の中央値（段差の位置で前後を混ぜない＝平均だと段差の手前で明るく行き過ぎた）。倍率は 0.8〜1.25、
+         RGB に同じ倍率（色味は変えない。character_guide と同じく足し引きではなく掛け算＝黒が浮かない）。
+         183 の出力で: 新しい部分 54.0／50.1 → 60.6、t の段差なし、細かい揺れは元と同程度（0.24／元 0.33）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -37,7 +43,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 API = 1
 SLOTS = ()
 
@@ -46,6 +52,8 @@ AUDIO_WIN_BEFORE = 4.0                  # 音声の文脈を取るとき、t の
 AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコードする（窓の終わりの端の癖を文脈に入れない）
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 POLL_SEC = 0.5
+TONE_WIN = 25                           # 0.3.1 明るさの流れを見る幅（コマ。中央値）
+TONE_CLIP = (0.8, 1.25)                 # 0.3.1 明るさを合わせる倍率の範囲
 ROPE_PER_SEC = 40.0                     # 映像（5/3 × 24fps）と音声（40 潜在/秒）の RoPE の時間は、どちらも 1 秒 = 40
 
 I18N = {
@@ -93,6 +101,13 @@ I18N = {
     "⚠️ 見つからない RefMod があります（無しで作ります）: {v0}": {
         "en": "⚠️ Some RefMods were not found (making it without them): {v0}", "zh": "⚠️ 有找不到的 RefMod（不使用它们生成）：{v0}",
         "ko": "⚠️ 찾을 수 없는 RefMod 가 있습니다(없이 만듭니다): {v0}"},
+    "   明るさ合わせ: 新しい部分を文脈の明るさに合わせました（×{v0}〜×{v1}）": {
+        "en": "   Brightness match: the new part was matched to the context brightness (×{v0}–×{v1})",
+        "zh": "   亮度对齐：已将新部分对齐到上下文的亮度（×{v0}〜×{v1}）",
+        "ko": "   밝기 맞춤: 새 부분을 문맥의 밝기에 맞췄습니다(×{v0}〜×{v1})"},
+    "⚠️ 明るさ合わせに失敗しました（そのまま書き出します）: {v0}": {
+        "en": "⚠️ Brightness match failed (writing as is): {v0}", "zh": "⚠️ 亮度对齐失败（按原样导出）：{v0}",
+        "ko": "⚠️ 밝기 맞춤에 실패했습니다(그대로 내보냅니다): {v0}"},
     "   文脈の作り方: 映像 {v0}・音声 {v1} 潜在": {
         "en": "   Context: video {v0}, audio {v1} latents", "zh": "   上下文：视频 {v0}・音频 {v1} 个潜变量",
         "ko": "   문맥: 영상 {v0}·음성 {v1} 잠재"},
@@ -232,7 +247,7 @@ class _null:
 #  Retake 本体
 # ------------------------------------------------------------------
 def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-                 shift=False, out_dir=None):
+                 shift=False, out_dir=None, tone=True):
     """src の t 秒から add_sec 秒を作り直す（extend=True なら t は動画の終わり）。
     (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す
     out_dir … 0.2.1 書き出し先のフォルダ（計測セルは /content/tNNN/ を渡す。そのときは Drive へ写さない）。None なら /content（LIBRARY に出る）"""
@@ -332,6 +347,14 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
     frames = [f if isinstance(f, Image.Image) else Image.fromarray(np.asarray(f)) for f in r["frames"]]
     frames = [f.convert("RGB") if f.size == (w, h) else f.convert("RGB").resize((w, h), Image.Resampling.LANCZOS)
               for f in frames]
+    if tone and len(frames) > ctx_n:
+        try:
+            fixed, (g0, g1) = tone_match(frames[ctx_n:], ctx_px)
+            frames = frames[:ctx_n] + fixed
+            if abs(g0 - 1.0) >= 0.01 or abs(g1 - 1.0) >= 0.01:
+                lines.append(T("   明るさ合わせ: 新しい部分を文脈の明るさに合わせました（×{v0}〜×{v1}）", v0=f"{g0:.2f}", v1=f"{g1:.2f}"))
+        except Exception as e:                                    # noqa: BLE001
+            lines.append(T("⚠️ 明るさ合わせに失敗しました（そのまま書き出します）: {v0}", v0=f"{e}"))
     joined_head = g["_blend_head"](frames, ctx_px, ctx_n)         # 先頭 22 コマ（文脈の描き直し）を元の 22 コマへ滑らかに
     stamp = datetime.datetime.now().strftime("%H%M%S")
     od = str(out_dir) if out_dir else "/content"
@@ -369,7 +392,7 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
             g["log"](f"⚠️ Retake の音声をつなげませんでした: {e}")
     info = {"src": os.path.basename(src), "t": round(t_cut, 4), "frame": int(ti), "ctx": ctx_n,
             "new_frames": int(nf - ctx_n), "audio_ctx": int(aud.shape[-1]) if aud is not None else 0,
-            "extend": bool(extend), "shift": round(shift_sec, 4), "module": f"{NAME} {VERSION}"}
+            "extend": bool(extend), "shift": round(shift_sec, 4), "tone": bool(tone), "module": f"{NAME} {VERSION}"}
     for p, kind in ((p_join, "joined"), (p_seg, "segment")):
         try:
             meta = g["build_meta"](mode, prompt, w, h, "", (nf - ctx_n) / fps, nf, steps, int(seed),
@@ -466,21 +489,44 @@ def _meta_settings(src):
     return m, mode
 
 
+def tone_match(frames, ref_frames):
+    """0.3.1 frames（PIL のリスト）の明るさを ref_frames（(N,H,W,3) uint8）の平均に合わせる → (新しいリスト, 最初と最後の倍率)"""
+    from PIL import Image
+    from scipy.ndimage import median_filter
+
+    def luma(a):
+        a = np.asarray(a, dtype=np.float32)[::8, ::8]
+        return float((a[..., 0] * 0.299 + a[..., 1] * 0.587 + a[..., 2] * 0.114).mean())
+    if not frames:
+        return frames, (1.0, 1.0)
+    ref = float(np.mean([luma(f) for f in ref_frames]))
+    ys = np.array([luma(f) for f in frames], dtype=np.float32)
+    trend = median_filter(ys, size=min(TONE_WIN, len(ys) | 1), mode="nearest")
+    gain = np.clip(ref / np.maximum(trend, 1e-3), *TONE_CLIP)
+    out = []
+    for f, gg in zip(frames, gain):
+        if abs(gg - 1.0) < 0.003:
+            out.append(f)
+            continue
+        out.append(Image.fromarray(np.clip(np.asarray(f, dtype=np.float32) * float(gg), 0, 255).astype(np.uint8)))
+    return out, (float(gain[0]), float(gain[-1]))
+
+
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-           shift=False, out_dir=None, inherit=False):
+           shift=False, out_dir=None, inherit=False, tone=True):
     """Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
     prompt が「挙動だけ」なら元のプロンプトと合わせる（compose_prompt）。生成が終われば本体の選択は元に戻す"""
     g = _g()
     T = _T
     if not inherit:
-        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir)
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone)
         return
     m, m_mode = _meta_settings(src)
     notes = []
     if not m.get("prompt"):
         notes.append(T("⚠️ 元の動画にメタ（プロンプト）が無いので引き継げません。書いたプロンプトのまま作ります"))
         yield ("\n".join(notes), None)
-        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir)
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone)
         return
     full = compose_prompt(str(m.get("prompt")), prompt)
     if full != (prompt or "").strip():
@@ -514,7 +560,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
                 notes.append(T("⚠️ 見つからない RefMod があります（無しで作ります）: {v0}", v0=" / ".join(miss)))
         yield ("\n".join(notes), None)
         last = ""
-        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir):
+        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone):
             last = st or last
             if r is not None:
                 r = dict(r, prompt=full)
