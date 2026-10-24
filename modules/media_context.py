@@ -49,6 +49,9 @@
        → **明暗の分布（トーンカーブ）合わせ**を足した: 各コマの明るさの分位（1/5/10/25/50/75/90/95/99%、25 コマの中央値の流れ）を
          文脈の分位へ写す折れ線で明るさを直し、RGB には比で掛ける（暗部 16 未満は差を足す＝比が暴れない）。順は RGB 別の倍率 → カーブ → 色の広がり。
          184 の CUT（960 幅）で: 新の p10/p25/p90 0.9/4.1/144 → 3.1/10.1/138（元 2.9/9.6/139）、t のコマ差 5.07 → 4.34（ふだん 3.61）
+0.3.5: セル185（184 の生成に 0.3.4 の合わせを掛け直し）: 鮮鋭度の谷 B22 0.67／B8 0.75／B3 0.69／CUT 0.83、コマ差の山 1.52／1.51／1.51／1.42 倍。
+       混ぜる案だけ山が増えたのは、合わせを新しい部分（t の後）にしか掛けず、描き直しの 22 コマは元のままだったため
+       （B8 で混ぜ終わり 60.5 → t の後 58.8 と明るさが食い違う）→ 描き直しの 22 コマも含めてクリップ全体を文脈に合わせる
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -61,7 +64,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 API = 1
 SLOTS = ()
 
@@ -373,8 +376,9 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
               for f in frames]
     if tone and len(frames) > ctx_n:
         try:
-            fixed, (g0, g1) = tone_match(frames[ctx_n:], ctx_px)
-            frames = frames[:ctx_n] + fixed
+            # 0.3.5 描き直しの 22 コマも一緒に合わせる（新しい部分だけ直すと、混ぜた所の終わり＝描き直しの最後のコマと
+            #       t の後のコマで明るさが食い違い、混ぜる案で t に段差が出た。セル185: B22/B8/B3 のコマ差の山 1.51 倍）
+            frames, (g0, g1) = tone_match(frames, ctx_px)
             if abs(g0 - 1.0) >= 0.01 or abs(g1 - 1.0) >= 0.01:
                 lines.append(T("   明るさ合わせ: 新しい部分を文脈の明るさに合わせました（×{v0}〜×{v1}）", v0=f"{g0:.2f}", v1=f"{g1:.2f}"))
         except Exception as e:                                    # noqa: BLE001
