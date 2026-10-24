@@ -39,6 +39,10 @@
          広がり 8.44／8.55 → 8.20／8.25（8.24）、明るさ 54.0／50.1 → 60.4／60.4（60.8）、白飛び 0.07% 以下。
        追加プロンプトの時刻: 新しいクリップは「文脈の始まり＝t−22 コマ」が 0 秒。inherit で挙動の文に書いた時刻（「6-8s」「00:06.000」の形）は
        **つないだ動画の時刻**として読み、新しいクリップの時刻へずらす（shift_times）
+0.3.3: 利用者所見「フリッカーっぽい繋ぎ目がわかる」。測ると（183 の出力）元と新しい絵を 22 コマかけて混ぜている間、
+       鮮鋭度が 120 → 83〜90 へ落ちて t で 98 に戻る（同じ場面の別の描画どうしを重ねると細部がずれて柔らかくなる＝ふわっと沈んで戻る）。
+       → 混ぜるコマ数を選べるように（blend: 0＝混ぜずに t で切り替え、既定は 22 のまま）。計測のとき（out_dir 指定）は
+         新しいクリップを混ぜる前の全コマで `_raw.mp4` にも書く＝1 回の生成から混ぜ方を何通りも作って比べられる（計測セル 184）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -51,7 +55,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 API = 1
 SLOTS = ()
 
@@ -259,7 +263,7 @@ class _null:
 #  Retake 本体
 # ------------------------------------------------------------------
 def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-                 shift=False, out_dir=None, tone=True):
+                 shift=False, out_dir=None, tone=True, blend=None):
     """src の t 秒から add_sec 秒を作り直す（extend=True なら t は動画の終わり）。
     (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す
     out_dir … 0.2.1 書き出し先のフォルダ（計測セルは /content/tNNN/ を渡す。そのときは Drive へ写さない）。None なら /content（LIBRARY に出る）"""
@@ -367,14 +371,24 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
                 lines.append(T("   明るさ合わせ: 新しい部分を文脈の明るさに合わせました（×{v0}〜×{v1}）", v0=f"{g0:.2f}", v1=f"{g1:.2f}"))
         except Exception as e:                                    # noqa: BLE001
             lines.append(T("⚠️ 明るさ合わせに失敗しました（そのまま書き出します）: {v0}", v0=f"{e}"))
-    joined_head = g["_blend_head"](frames, ctx_px, ctx_n)         # 先頭 22 コマ（文脈の描き直し）を元の 22 コマへ滑らかに
+    # 先頭 22 コマ（文脈の描き直し）のうち最後の L コマを元のコマと滑らかに混ぜる。L＝0 なら t で切り替え（元は t まで全部使う）
+    L = ctx_n if blend is None else max(0, min(ctx_n, int(blend)))
+    joined_head = g["_blend_head"](frames[ctx_n - L:], ctx_px[ctx_n - L:], L) if L > 0 else frames[ctx_n:]
     stamp = datetime.datetime.now().strftime("%H%M%S")
     od = str(out_dir) if out_dir else "/content"
     os.makedirs(od, exist_ok=True)
     base = os.path.join(od, f"minimax_h3_retake_{stamp}_{int(seed)}")
     p_join, p_seg = base + ".mp4", base + "_seg.mp4"
     g["export_to_video"](frames[ctx_n:], p_seg, fps=int(fps))
-    _write_joined(src, w, h, ti - ctx_n, joined_head, p_join, fps)
+    _write_joined(src, w, h, ti - L, joined_head, p_join, fps)
+    p_raw = None
+    if out_dir:                                                   # 計測用: 混ぜる前の全コマ（文脈の描き直しを含む）
+        p_raw = base + "_raw.mp4"
+        try:
+            g["export_to_video"](frames, p_raw, fps=int(fps))
+        except Exception as e:                                    # noqa: BLE001
+            g["log"](f"⚠️ _raw.mp4 を書けませんでした: {e}")
+            p_raw = None
 
     # ---- 音声: 元の [0, t) ＋ 新しい音の t 以降（短いクロスフェード）----
     if r.get("audio") is not None:
@@ -404,7 +418,8 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
             g["log"](f"⚠️ Retake の音声をつなげませんでした: {e}")
     info = {"src": os.path.basename(src), "t": round(t_cut, 4), "frame": int(ti), "ctx": ctx_n,
             "new_frames": int(nf - ctx_n), "audio_ctx": int(aud.shape[-1]) if aud is not None else 0,
-            "extend": bool(extend), "shift": round(shift_sec, 4), "tone": bool(tone), "module": f"{NAME} {VERSION}"}
+            "extend": bool(extend), "shift": round(shift_sec, 4), "tone": bool(tone), "blend": int(L),
+            "module": f"{NAME} {VERSION}"}
     for p, kind in ((p_join, "joined"), (p_seg, "segment")):
         try:
             meta = g["build_meta"](mode, prompt, w, h, "", (nf - ctx_n) / fps, nf, steps, int(seed),
@@ -427,7 +442,7 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
         torch.cuda.empty_cache()
     except Exception:                                             # noqa: BLE001
         pass
-    yield ("\n".join(lines), dict(joined=p_join, seg=p_seg, info=info, sec=sec, peak=r.get("peak")))
+    yield ("\n".join(lines), dict(joined=p_join, seg=p_seg, raw=p_raw, info=info, sec=sec, peak=r.get("peak")))
 
 
 # ------------------------------------------------------------------
@@ -568,20 +583,20 @@ def shift_times(text, off):
 
 
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-           shift=False, out_dir=None, inherit=False, tone=True):
+           shift=False, out_dir=None, inherit=False, tone=True, blend=None):
     """Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
     prompt が「挙動だけ」なら元のプロンプトと合わせる（compose_prompt）。生成が終われば本体の選択は元に戻す"""
     g = _g()
     T = _T
     if not inherit:
-        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone)
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend)
         return
     m, m_mode = _meta_settings(src)
     notes = []
     if not m.get("prompt"):
         notes.append(T("⚠️ 元の動画にメタ（プロンプト）が無いので引き継げません。書いたプロンプトのまま作ります"))
         yield ("\n".join(notes), None)
-        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone)
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend)
         return
     act = prompt
     if prompt and not _sections(prompt)[0]:
@@ -626,7 +641,7 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
                 notes.append(T("⚠️ 見つからない RefMod があります（無しで作ります）: {v0}", v0=" / ".join(miss)))
         yield ("\n".join(notes), None)
         last = ""
-        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone):
+        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend):
             last = st or last
             if r is not None:
                 r = dict(r, prompt=full)
