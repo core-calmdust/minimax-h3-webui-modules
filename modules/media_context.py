@@ -17,6 +17,14 @@
        → **原点シフト**（設計メモ 4.2）を試せるようにした: 新しいクリップの映像・音声の時刻（RoPE の時間）に「文脈の始まり＝t−22 コマ」の
        秒数を足し、モデルには「元の動画の途中から先」として見せる。元のプロンプトの時刻の指定（0〜2 秒のセリフ等）が「済んだこと」になる見込み。
        学習に無い見せ方（文章のすぐ後に映像が来ない）なので、計測セル 181 で ON/OFF を比べてから既定を決める。
+       → セル181: 効いたのは「続きのプロンプト」。原点シフト単独では言い直しが残る＝既定 OFF（オプションとして残す）。
+0.3.0: 利用者要望（2026-10-24）「元のプロンプトが動画に入っているなら、人物やロケーションは自動で維持して、書いた挙動だけ変わる仕組み」。
+       inherit=True で元の動画のメタから引き継ぐ:
+         ・モード（R2V など）と RefMod（名前・強さ）… 生成の間だけ本体の RefMod の選択を元のものにする（終わったら戻す）
+         ・Turbo LoRA・強さ・Steps … セル182: 元と同じにすると「とても自然に追加生成できる」（利用者）
+         ・プロンプト … 書いたのが「挙動だけ」（節の見出しが無い文）なら compose_prompt で元のプロンプトと合わせる:
+           人物の定義・保持の分析・音の節は元のまま、summary は元の場所の文＋「同じ人・同じ場所で直前から続く」、
+           detailed_description は元の光・場所の文＋[Shot 1] の構図の文＋書いた挙動＋元のカメラと終わり方の文
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -29,7 +37,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 API = 1
 SLOTS = ()
 
@@ -70,6 +78,21 @@ I18N = {
         "en": "✅ Retake done ({v0} s): joined {v1} / new part {v2}",
         "zh": "✅ Retake 完成（{v0} 秒）：拼接版 {v1} ／ 新部分 {v2}",
         "ko": "✅ Retake 완료({v0} 초): 이어 붙인 것 {v1} / 새 부분 {v2}"},
+    "⚠️ 元の動画にメタ（プロンプト）が無いので引き継げません。書いたプロンプトのまま作ります": {
+        "en": "⚠️ The source has no metadata (prompt), so nothing can be inherited. Using the prompt as written",
+        "zh": "⚠️ 原视频没有元数据（提示词），无法继承。按所写的提示词生成",
+        "ko": "⚠️ 원본 영상에 메타데이터(프롬프트)가 없어 이어받을 수 없습니다. 쓴 프롬프트 그대로 만듭니다"},
+    "🧩 元のプロンプトの人物・場所・構図・音を残し、書いた挙動を入れて続きのプロンプトを組みました": {
+        "en": "🧩 Built the continuation prompt: people, place, framing and sound from the original prompt, plus the action you wrote",
+        "zh": "🧩 已组合续写提示词：保留原提示词的人物・地点・构图・声音，并加入你写的动作",
+        "ko": "🧩 원래 프롬프트의 인물·장소·구도·소리를 남기고, 쓴 동작을 넣어 이어지는 프롬프트를 만들었습니다"},
+    "   引き継ぎ: モード {v0} / Turbo {v1} × {v2} / Steps {v3}": {
+        "en": "   Inherited: mode {v0} / Turbo {v1} × {v2} / Steps {v3}", "zh": "   继承：模式 {v0} / Turbo {v1} × {v2} / Steps {v3}",
+        "ko": "   이어받음: 모드 {v0} / Turbo {v1} × {v2} / Steps {v3}"},
+    "   RefMod: {v0}": {"en": "   RefMod: {v0}", "zh": "   RefMod：{v0}", "ko": "   RefMod: {v0}"},
+    "⚠️ 見つからない RefMod があります（無しで作ります）: {v0}": {
+        "en": "⚠️ Some RefMods were not found (making it without them): {v0}", "zh": "⚠️ 有找不到的 RefMod（不使用它们生成）：{v0}",
+        "ko": "⚠️ 찾을 수 없는 RefMod 가 있습니다(없이 만듭니다): {v0}"},
     "   文脈の作り方: 映像 {v0}・音声 {v1} 潜在": {
         "en": "   Context: video {v0}, audio {v1} latents", "zh": "   上下文：视频 {v0}・音频 {v1} 个潜变量",
         "ko": "   문맥: 영상 {v0}·음성 {v1} 잠재"},
@@ -208,8 +231,8 @@ class _null:
 # ------------------------------------------------------------------
 #  Retake 本体
 # ------------------------------------------------------------------
-def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-           shift=False, out_dir=None):
+def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
+                 shift=False, out_dir=None):
     """src の t 秒から add_sec 秒を作り直す（extend=True なら t は動画の終わり）。
     (status, None) を逐次 yield し、最後に (status, {"joined": パス, "seg": パス, ...}) を返す
     out_dir … 0.2.1 書き出し先のフォルダ（計測セルは /content/tNNN/ を渡す。そのときは Drive へ写さない）。None なら /content（LIBRARY に出る）"""
@@ -370,6 +393,142 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
     except Exception:                                             # noqa: BLE001
         pass
     yield ("\n".join(lines), dict(joined=p_join, seg=p_seg, info=info, sec=sec, peak=r.get("peak")))
+
+
+# ------------------------------------------------------------------
+#  0.3.0 元の動画から引き継ぐ（人物・場所・設定）
+# ------------------------------------------------------------------
+_SEC_NAMES = ("subject_definitions", "summary", "retention_analysis", "detailed_description",
+              "overall_soundscape", "non_diegetic_music", "integrated_multimodal_description")
+
+
+def _sections(text):
+    """H3 の節（`名前:` の行で始まる）→ (順番の名前の並び, {名前: 中身})。節が無ければ ([], {})"""
+    import re
+    pat = re.compile(r"^\s*(" + "|".join(_SEC_NAMES) + r")\s*:\s*$", re.M)
+    hits = list(pat.finditer(text or ""))
+    order, body = [], {}
+    for i, m in enumerate(hits):
+        end = hits[i + 1].start() if i + 1 < len(hits) else len(text)
+        order.append(m.group(1))
+        body[m.group(1)] = text[m.end():end].strip()
+    return order, body
+
+
+def _sentences(text):
+    import re
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z<\[])", (text or "").strip()) if x.strip()]
+
+
+def compose_prompt(original, action):
+    """元のプロンプト＋「挙動だけ」の文 → 続きのプロンプト。action が節の見出しを持つ（全文を書いた）ならそのまま返す。
+    人物の定義・保持の分析・音の節は元のまま。summary と detailed_description は、元から場所・光・構図・カメラ・終わり方の文だけ残して
+    間に action を入れる。元が節の形でなければ「同じ人・同じ場所」の一文を前に付けるだけ"""
+    action = (action or "").strip()
+    order, sec = _sections(original or "")
+    if not action or _sections(action)[0]:
+        return action or (original or "")
+    if "detailed_description" not in sec:
+        return ("The same people in the same place as before, continuing directly from the previous moment. " + action)
+    out = {}
+    for k in order:
+        out[k] = sec[k]
+    # summary: 先頭のタグ（[reference generation] など）＋場所の文（最初の 1 文）＋続きの一文
+    sm = sec.get("summary", "")
+    tag = ""
+    if sm.startswith("["):
+        tag, _, sm = sm.partition("]")
+        tag = tag + "] "
+        sm = sm.strip()
+    ss = _sentences(sm)
+    keep = [x for x in ss if "same" in x.lower() and ("face" in x.lower() or "people" in x.lower() or "person" in x.lower())]
+    out["summary"] = (tag + (ss[0] + " " if ss else "")
+                      + "The shot continues directly from the previous moment, with the same people in the same place. "
+                      + " ".join(keep)).strip()
+    # detailed_description: [Shot 1] の前（光・場所）＋構図の文＋挙動＋カメラ・終わり方の文
+    dd = sec["detailed_description"]
+    pre, mark, post = dd.partition("[Shot 1]")
+    if not mark:
+        pre, post = "", dd
+    ps = _sentences(post)
+    frame = ps[0] if ps else ""
+    tail = [x for x in ps[1:] if ("camera" in x.lower() or x.lower().startswith("the shot ends")
+                                  or x.lower().startswith("hands stay"))]
+    out["detailed_description"] = " ".join(y for y in (pre.strip(), "[Shot 1] " + ("The same framing continues — " + frame if frame else "").strip(),
+                                                        action, " ".join(tail)) if y).replace("  ", " ")
+    return "\n\n".join(f"{k}:\n{out[k]}" for k in order)
+
+
+def _meta_settings(src):
+    g = _g()
+    m = g["read_meta"](src) or {}
+    mode = g["SHORT_TO_MODE"].get(str(m.get("mode") or ""), str(m.get("mode") or "")) or None
+    return m, mode
+
+
+def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
+           shift=False, out_dir=None, inherit=False):
+    """Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
+    prompt が「挙動だけ」なら元のプロンプトと合わせる（compose_prompt）。生成が終われば本体の選択は元に戻す"""
+    g = _g()
+    T = _T
+    if not inherit:
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir)
+        return
+    m, m_mode = _meta_settings(src)
+    notes = []
+    if not m.get("prompt"):
+        notes.append(T("⚠️ 元の動画にメタ（プロンプト）が無いので引き継げません。書いたプロンプトのまま作ります"))
+        yield ("\n".join(notes), None)
+        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir)
+        return
+    full = compose_prompt(str(m.get("prompt")), prompt)
+    if full != (prompt or "").strip():
+        notes.append(T("🧩 元のプロンプトの人物・場所・構図・音を残し、書いた挙動を入れて続きのプロンプトを組みました"))
+    mode = m_mode or mode
+    key0 = g["turbo_key"]()
+    str0 = float(g["_LORA_STATE"].get("strength", 1.0))
+    m_key = str(m.get("lora") or "")
+    m_str = float(m.get("lora_strength", 1.0) or 1.0)
+    steps = int(m.get("steps") or steps or 4)
+    rm = g.get("_REFMOD")
+    rm0 = None
+    try:
+        if m_key and m_key in (g.get("TURBO_CATALOG") or {}) and m_key != key0:
+            g["install_turbo_lora"](m_key, verbose=False)
+        if m_key:
+            g["set_turbo_strength"](m_str)
+        notes.append(T("   引き継ぎ: モード {v0} / Turbo {v1} × {v2} / Steps {v3}", v0=m.get("mode"), v1=m_key or "?",
+                       v2=f"{m_str:g}", v3=steps))
+        mr = m.get("refmods") or None
+        if isinstance(rm, dict) and mr and g["is_ref_mode"](mode):
+            names = [n for n in (mr.get("names") or [])
+                     if os.path.isfile(os.path.join(g.get("REFMOD_DIR", ""), n + ".safetensors"))]
+            miss = [n for n in (mr.get("names") or []) if n not in names]
+            rm0 = {k: (list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) else v))
+                   for k, v in rm.items() if k in ("sel", "strength", "each", "cap")}
+            rm.update(sel=names, strength=float(mr.get("strength", 1.0) or 1.0), each=dict(mr.get("each") or {}),
+                      cap=int(mr.get("cap") or 0))
+            notes.append(T("   RefMod: {v0}", v0=" / ".join(names) or "—"))
+            if miss:
+                notes.append(T("⚠️ 見つからない RefMod があります（無しで作ります）: {v0}", v0=" / ".join(miss)))
+        yield ("\n".join(notes), None)
+        last = ""
+        for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir):
+            last = st or last
+            if r is not None:
+                r = dict(r, prompt=full)
+            yield ("\n".join(notes + [last]), r)
+    finally:
+        if rm0 is not None:
+            rm.update(rm0)
+        try:
+            if g["turbo_key"]() != key0:
+                g["install_turbo_lora"](key0, verbose=False)
+            g["set_turbo_strength"](str0)
+        except Exception as e:                                    # noqa: BLE001
+            g["log"](f"⚠️ 元の Turbo LoRA に戻せませんでした: {e}")
+
 
 
 def _write_joined(src, w, h, n_pre, new_frames, out, fps):
