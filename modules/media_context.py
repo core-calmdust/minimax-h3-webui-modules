@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -1008,7 +1008,9 @@ def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None
             is_before = cut is None or rs[0] < cut
             # 0.12.0 頭の文脈の台詞は書かない（文字で渡すと、文脈で言い終わった台詞を新しい部分の頭でもう一度言う。セル190: 「この本もう読んだ？」が 2 回。
             #        #418 の『元のプロンプトのままだと最初の台詞を言い直す』と同じ）。戻り先（終わりの文脈）の台詞だけ渡す
-            if is_before and "<d>" in bt:
+            if "<d>" in bt:
+                # 0.13.0 戻り先（終わりの文脈）の台詞も書かない（セル191: 書くと書いた時刻より早く、区間の中で言ってしまい、戻った先の元の台詞と 2 回になる）。
+                #        区間の端は台詞の外へ寄せてあるので、戻り際の声は終わりの文脈の音と、戻った後の元の音が受け持つ
                 continue
             bt2 = _retime(bt, sp, rs) if rs != sp else bt
             bt2 = _shift_clip(bt2, off, clip_sec)
@@ -1017,7 +1019,7 @@ def compose_prompt(original, action, keep=None, off=0.0, clip_sec=None, cut=None
     #        セル187: 台詞を書かない区間で意味の無い声を出した）
     quiet = ""
     if windows:
-        quiet = (" Apart from this line, nobody says anything else in this part; the next line starts after a short silence."
+        quiet = (" Apart from this line, nobody says anything else; after it there is a short silence until the very end of the shot."
                  if "<d>" in action else " Nobody speaks in this part.")
     ps = [x for x in _sentences(post) if not _has_time(x)]
     frame = ps[0] if ps else ""
