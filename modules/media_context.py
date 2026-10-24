@@ -31,6 +31,14 @@
          流れは 1 秒（25 コマ）の中央値（段差の位置で前後を混ぜない＝平均だと段差の手前で明るく行き過ぎた）。倍率は 0.8〜1.25、
          RGB に同じ倍率（色味は変えない。character_guide と同じく足し引きではなく掛け算＝黒が浮かない）。
          183 の出力で: 新しい部分 54.0／50.1 → 60.6、t の段差なし、細かい揺れは元と同程度（0.24／元 0.33）
+0.3.2: 利用者所見「明るさは良くなったが色調が微妙にずれる」。測ると（183 の出力）赤みが増え（R/G 文脈 1.130 → 新しい部分 1.161／1.195）、
+       同じ倍率で明るくすると色の広がり（Lab の a・b の標準偏差）も 8.29 → 9.33／9.98 と濃くなっていた。
+       → 明るさ合わせを **R・G・B 別の倍率**に（色かぶりも一緒に合わせる）＋ **色の広がり**を文脈に合わせる（各コマの平均の色のまわりで
+         a・b を縮める／広げる。流れは中央値）。倍率の範囲を 0.75〜1.35 に広げた（終わりの方で G が 1.3 倍要った）。
+         183 の出力（新しい部分の前半／後半）で: R/G 1.163／1.197 → 1.139／1.144（文脈 1.131）、B/G 1.048／1.044 → 1.030／1.028（1.033）、
+         広がり 8.44／8.55 → 8.20／8.25（8.24）、明るさ 54.0／50.1 → 60.4／60.4（60.8）、白飛び 0.07% 以下。
+       追加プロンプトの時刻: 新しいクリップは「文脈の始まり＝t−22 コマ」が 0 秒。inherit で挙動の文に書いた時刻（「6-8s」「00:06.000」の形）は
+       **つないだ動画の時刻**として読み、新しいクリップの時刻へずらす（shift_times）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -43,7 +51,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 API = 1
 SLOTS = ()
 
@@ -53,7 +61,7 @@ AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコ
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 POLL_SEC = 0.5
 TONE_WIN = 25                           # 0.3.1 明るさの流れを見る幅（コマ。中央値）
-TONE_CLIP = (0.8, 1.25)                 # 0.3.1 明るさを合わせる倍率の範囲
+TONE_CLIP = (0.75, 1.35)                # 0.3.1 明るさを合わせる倍率の範囲（0.3.2 で 0.8〜1.25 から広げた: 赤みが強い終わりの方で G が 1.3 倍要った）
 ROPE_PER_SEC = 40.0                     # 映像（5/3 × 24fps）と音声（40 潜在/秒）の RoPE の時間は、どちらも 1 秒 = 40
 
 I18N = {
@@ -101,6 +109,10 @@ I18N = {
     "⚠️ 見つからない RefMod があります（無しで作ります）: {v0}": {
         "en": "⚠️ Some RefMods were not found (making it without them): {v0}", "zh": "⚠️ 有找不到的 RefMod（不使用它们生成）：{v0}",
         "ko": "⚠️ 찾을 수 없는 RefMod 가 있습니다(없이 만듭니다): {v0}"},
+    "   時刻の指定 {v0} か所を、新しいクリップの時刻へずらしました（つないだ動画の時刻として読みます）": {
+        "en": "   Shifted {v0} time marks to the new clip's timeline (read as times in the joined video)",
+        "zh": "   已将 {v0} 处时间指定换算到新片段的时间轴（按拼接后视频的时间理解）",
+        "ko": "   시간 지정 {v0} 곳을 새 클립의 시간으로 옮겼습니다(이어 붙인 영상의 시간으로 읽습니다)"},
     "   明るさ合わせ: 新しい部分を文脈の明るさに合わせました（×{v0}〜×{v1}）": {
         "en": "   Brightness match: the new part was matched to the context brightness (×{v0}–×{v1})",
         "zh": "   亮度对齐：已将新部分对齐到上下文的亮度（×{v0}〜×{v1}）",
@@ -490,26 +502,69 @@ def _meta_settings(src):
 
 
 def tone_match(frames, ref_frames):
-    """0.3.1 frames（PIL のリスト）の明るさを ref_frames（(N,H,W,3) uint8）の平均に合わせる → (新しいリスト, 最初と最後の倍率)"""
+    """frames（PIL のリスト）の明るさ・色かぶり・色の広がりを ref_frames（(N,H,W,3) uint8 RGB）に合わせる
+    → (新しいリスト, (最初の明るさの倍率, 最後の明るさの倍率))
+    0.3.1 明るさ（RGB に同じ倍率）→ 0.3.2 R・G・B 別の倍率＋Lab の a・b の広がり。流れは 25 コマの中央値（段差の位置を保つ）"""
+    import cv2
     from PIL import Image
     from scipy.ndimage import median_filter
-
-    def luma(a):
-        a = np.asarray(a, dtype=np.float32)[::8, ::8]
-        return float((a[..., 0] * 0.299 + a[..., 1] * 0.587 + a[..., 2] * 0.114).mean())
     if not frames:
         return frames, (1.0, 1.0)
-    ref = float(np.mean([luma(f) for f in ref_frames]))
-    ys = np.array([luma(f) for f in frames], dtype=np.float32)
-    trend = median_filter(ys, size=min(TONE_WIN, len(ys) | 1), mode="nearest")
-    gain = np.clip(ref / np.maximum(trend, 1e-3), *TONE_CLIP)
+
+    def small(a):
+        return np.asarray(a, dtype=np.float32)[::8, ::8]
+
+    def spread(a):
+        lab = cv2.cvtColor(np.clip(a / 255.0, 0, 1).astype(np.float32), cv2.COLOR_RGB2Lab)
+        return float(np.sqrt(lab[..., 1].var() + lab[..., 2].var()))
+    win = min(TONE_WIN, len(frames) | 1)
+    ref_rgb = np.mean([small(f).reshape(-1, 3).mean(0) for f in ref_frames], axis=0)
+    ref_sp = float(np.mean([spread(small(f)) for f in ref_frames]))
+    rgb = np.array([small(f).reshape(-1, 3).mean(0) for f in frames], dtype=np.float32)
+    gains = np.clip(ref_rgb[None] / np.maximum(median_filter(rgb, size=(win, 1), mode="nearest"), 1e-3), *TONE_CLIP)
+    sp = np.array([spread(small(f) * gains[i]) for i, f in enumerate(frames)], dtype=np.float32)
+    sat = np.clip(ref_sp / np.maximum(median_filter(sp, size=win, mode="nearest"), 1e-3), *TONE_CLIP)
     out = []
-    for f, gg in zip(frames, gain):
-        if abs(gg - 1.0) < 0.003:
-            out.append(f)
-            continue
-        out.append(Image.fromarray(np.clip(np.asarray(f, dtype=np.float32) * float(gg), 0, 255).astype(np.uint8)))
-    return out, (float(gain[0]), float(gain[-1]))
+    for f, gg, ss in zip(frames, gains, sat):
+        a = np.asarray(f, dtype=np.float32) * gg[None, None, :]
+        if abs(float(ss) - 1.0) >= 0.005:
+            lab = cv2.cvtColor(np.clip(a / 255.0, 0, 1).astype(np.float32), cv2.COLOR_RGB2Lab)
+            for c in (1, 2):
+                m = float(lab[..., c].mean())
+                lab[..., c] = m + (lab[..., c] - m) * float(ss)
+            a = cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255.0
+        out.append(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
+    lum = gains @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    return out, (float(lum[0]), float(lum[-1]))
+
+
+def shift_times(text, off):
+    """挙動の文の時刻（つないだ動画の時刻）を新しいクリップの時刻（文脈の始まりが 0 秒）へずらす。
+    「6-8s」「6.5〜8s」の形と「00:06」「0:06.500」の形（分:秒）を直す。0 秒より前は 0 にする"""
+    import re
+    off = float(off)
+    if off <= 0 or not text:
+        return text, 0
+
+    def fmt(x):
+        return f"{max(0.0, x):.2f}".rstrip("0").rstrip(".")
+    n = [0]
+
+    def r1(m):
+        n[0] += 1
+        return f"{fmt(float(m.group(1)) - off)}-{fmt(float(m.group(2)) - off)}s"
+    text = re.sub(r"(?<![\d.:])(\d+(?:\.\d+)?)\s*[-–〜~]\s*(\d+(?:\.\d+)?)\s*s\b", r1, text)
+
+    def r2(m):
+        n[0] += 1
+        sec = max(0.0, int(m.group(1)) * 60 + float(m.group(2)) - off)
+        dec = len(m.group(2).split(".")[1]) if "." in m.group(2) else 0
+        if dec == 0 and abs(sec - round(sec)) > 1e-6:
+            dec = 3                                               # ずらして端数が出たら .mmm を付ける
+        ss = f"{sec % 60:0{3 + dec if dec else 2}.{dec}f}"
+        return f"{int(sec // 60):0{len(m.group(1))}d}:{ss}"
+    text = re.sub(r"(?<![\d.:])(\d{1,2}):(\d{2}(?:\.\d{1,3})?)(?![\d:])", r2, text)
+    return text, n[0]
 
 
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
@@ -528,7 +583,18 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
         yield ("\n".join(notes), None)
         yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone)
         return
-    full = compose_prompt(str(m.get("prompt")), prompt)
+    act = prompt
+    if prompt and not _sections(prompt)[0]:
+        try:
+            _w, _h, _n, _f, _a = g["_probe_video"](src)
+            fpsx = float(g.get("FPS", 24))
+            ti = int(_n) if extend else int(round(float(t) * fpsx))
+            act, nt = shift_times(prompt, (ti - int(g.get("MOTION_CTX_FRAMES", 22))) / fpsx)
+            if nt:
+                notes.append(T("   時刻の指定 {v0} か所を、新しいクリップの時刻へずらしました（つないだ動画の時刻として読みます）", v0=nt))
+        except Exception:                                         # noqa: BLE001
+            act = prompt
+    full = compose_prompt(str(m.get("prompt")), act)
     if full != (prompt or "").strip():
         notes.append(T("🧩 元のプロンプトの人物・場所・構図・音を残し、書いた挙動を入れて続きのプロンプトを組みました"))
     mode = m_mode or mode
