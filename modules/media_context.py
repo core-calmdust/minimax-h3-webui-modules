@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.15.1"
+VERSION = "0.16.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -1431,7 +1431,7 @@ _MIRROR = {                                                       # SEGMENTS / L
     "#seg-concat-btn": ["#rt-pos-btn", "#rt-run-btn", "#rt-pos2-btn"], "#seg-msg": ["#rt-msg"], "#seg-note": ["#rt-note"],
     "#seg-len": ["#rt-t", "#rt-add", "#rt-steps", "#rt-t2"],
     "#lib-up-btn": ["#lib-rt-btn"],
-    "#status-panel": ["#rt-status"], "#refmod-pick": ["#rt-refmods"], "#lora-dd": ["#rt-turbo"],   # 0.5.0
+    "#status-panel": ["#rt-status"], "#refmod-pick": ["#rt-refmods"], "#lora-dd": ["#rt-turbo", "#rt-ctx"],   # 0.5.0 / 0.16.0
     "#refmod-info": ["#rt-refmods"],                              # 0.8.0 参照のカード（CREATE の RefMod の一覧の書式）
 }
 CSS = ""                                                          # setup で本体の CSS から作る（本体と同じ値を二重に持たない）
@@ -1496,7 +1496,8 @@ def _mirror_css(css):
 HELP_RT = ("LIBRARY の動画の続きを作る・途中から作り直す機能です。**元の動画のメタ**（プロンプト・モード・RefMod・Turbo・Steps）を自動で引き継ぎ、"
            "人物・場所・構図・カメラ・音はそのまま、「続きの挙動」に書いた動きやセリフだけを足します。\n"
            "時刻を書くときは**つないだ動画の時刻**で（例: 6 秒から作り直すなら `6-8s: …`）。新しいクリップの時刻へ自動で直します。\n"
-           "新しいクリップは t の直前 22 コマ（約 0.9 秒）と音を引き継いで作り、t の直前 8 コマで元と混ぜてつなぎます。明るさ・色・明暗も元に合わせます。\n"
+           "新しいクリップは t の直前 22 コマ（約 0.9 秒）と音を引き継いで作り、t の直前 8 コマで元と混ぜてつなぎます。明るさ・色・明暗も元に合わせます。"
+           "「文脈の長さ」を 39 コマ（約 1.6 秒）にすると直前の動きまで引き継いで継ぎ目が少し自然になり、生成は約 4 割長くなります（区間差し替えは 22 コマ）。\n"
            "「区間だけ差し替える」を ON にすると、t から「戻る位置」までだけを作り直して、その後ろは元の動画に戻ります（前後の映像と音を両方引き継ぎます）。"
            "始まりと戻る位置は、台詞の途中にかからないよう台詞の外へ自動で少し動きます（STATUS に出ます）。\n"
            "結果は LIBRARY に「つないだもの」と「新しい部分だけ」の 2 本で残ります（元のファイルは変わりません）")
@@ -1507,6 +1508,9 @@ I18N.update({
     "▶ 再生位置を使う": {"en": "▶ Use playhead", "zh": "▶ 使用播放位置", "ko": "▶ 재생 위치 사용"},
     "終わりから延長する": {"en": "Extend from the end", "zh": "从结尾延长", "ko": "끝에서 이어 만들기"},
     "区間だけ差し替える": {"en": "Replace a range only", "zh": "只替换区间", "ko": "구간만 교체"},
+    "文脈の長さ": {"en": "Context length", "zh": "上下文长度", "ko": "문맥 길이"},
+    "22 コマ（速い）": {"en": "22 frames (fast)", "zh": "22 帧（更快）", "ko": "22 프레임(빠름)"},
+    "39 コマ（なめらか）": {"en": "39 frames (smoother)", "zh": "39 帧（更顺滑）", "ko": "39 프레임(매끄러움)"},
     "戻る位置（秒）": {"en": "Return at (s)", "zh": "返回位置（秒）", "ko": "돌아갈 위치(초)"},
     "▶ 再生位置を戻る位置に": {"en": "▶ Playhead as return point", "zh": "▶ 用播放位置作返回位置", "ko": "▶ 재생 위치를 돌아갈 위치로"},
     "戻る位置は撮り直す位置より後ろにしてください": {"en": "Set “Return at” after “Retake from”",
@@ -1546,9 +1550,9 @@ I18N.update({
     "⛔ ほかの生成が終わるまでお待ちください": {"en": "⛔ Please wait until the other generation finishes",
                                        "zh": "⛔ 请等待其他生成完成", "ko": "⛔ 다른 생성이 끝날 때까지 기다려 주세요"},
     HELP_RT: {
-        "en": "Make the continuation of a LIBRARY video, or re-make it from a point. The **source video's metadata** (prompt, mode, RefMods, Turbo, Steps) is inherited automatically: people, place, framing, camera and sound stay, and only the movement and lines you write in “What happens next” are added.\nWrite times in the **joined video's timeline** (e.g. to re-make from 6 s, `6-8s: …`); they are converted to the new clip's timeline automatically.\nThe new clip is made from the 22 frames (about 0.9 s) and the audio just before t, and blended with the source over the last 8 frames before t. Brightness, colour and contrast are matched to the source.\nWith “Replace a range only” on, only the part from t to “Return at” is re-made and the source video continues after it (the video and audio on both sides are used as context). The start and the return point move slightly out of any line of dialogue automatically (shown in STATUS).\nTwo results stay in LIBRARY: the joined video and the new part only (the source file is not changed)",
-        "zh": "为 LIBRARY 中的视频生成后续，或从中途重新生成。会自动继承**原视频的元数据**（提示词・模式・RefMod・Turbo・Steps），人物・地点・构图・镜头・声音保持不变，只加入你在「接下来的动作」中写的动作和台词。\n写时间时请用**拼接后视频的时间**（例：从 6 秒重做则写 `6-8s: …`），会自动换算到新片段的时间。\n新片段以 t 之前的 22 帧（约 0.9 秒）和声音为上下文生成，并在 t 之前的 8 帧与原视频混合衔接。亮度・颜色・明暗也会对齐原视频。\n打开「只替换区间」后，只重做从 t 到「返回位置」的部分，之后回到原视频（前后的画面和声音都作为上下文）。开始和返回位置会自动稍微移到台词之外（显示在 STATUS）。\n结果以「拼接版」和「仅新部分」两条保存在 LIBRARY（原文件不变）",
-        "ko": "LIBRARY 영상의 뒷부분을 만들거나 중간부터 다시 만듭니다. **원본 영상의 메타데이터**(프롬프트·모드·RefMod·Turbo·Steps)를 자동으로 이어받아 인물·장소·구도·카메라·소리는 그대로 두고, 「이어지는 동작」에 쓴 움직임과 대사만 더합니다.\n시간은 **이어 붙인 영상의 시간**으로 쓰세요(예: 6 초부터 다시 만들려면 `6-8s: …`). 새 클립의 시간으로 자동 변환합니다.\n새 클립은 t 직전 22 프레임(약 0.9 초)과 소리를 이어받아 만들고, t 직전 8 프레임에서 원본과 섞어 잇습니다. 밝기·색·명암도 원본에 맞춥니다.\n「구간만 교체」를 켜면 t 부터 「돌아갈 위치」까지만 다시 만들고, 그 뒤는 원본 영상으로 돌아갑니다(앞뒤 영상과 소리를 모두 이어받습니다). 시작과 돌아갈 위치는 대사 중간에 걸리지 않도록 대사 밖으로 자동으로 조금 움직입니다(STATUS 에 표시).\n결과는 LIBRARY 에 「이어 붙인 것」과 「새 부분만」 2 개로 남습니다(원본 파일은 바뀌지 않습니다)"},
+        "en": "Make the continuation of a LIBRARY video, or re-make it from a point. The **source video's metadata** (prompt, mode, RefMods, Turbo, Steps) is inherited automatically: people, place, framing, camera and sound stay, and only the movement and lines you write in “What happens next” are added.\nWrite times in the **joined video's timeline** (e.g. to re-make from 6 s, `6-8s: …`); they are converted to the new clip's timeline automatically.\nThe new clip is made from the 22 frames (about 0.9 s) and the audio just before t, and blended with the source over the last 8 frames before t. Brightness, colour and contrast are matched to the source. With “Context length” at 39 frames (about 1.6 s) the motion just before t is carried over too and the join looks a little more natural; generation takes about 40% longer (range replace always uses 22 frames).\nWith “Replace a range only” on, only the part from t to “Return at” is re-made and the source video continues after it (the video and audio on both sides are used as context). The start and the return point move slightly out of any line of dialogue automatically (shown in STATUS).\nTwo results stay in LIBRARY: the joined video and the new part only (the source file is not changed)",
+        "zh": "为 LIBRARY 中的视频生成后续，或从中途重新生成。会自动继承**原视频的元数据**（提示词・模式・RefMod・Turbo・Steps），人物・地点・构图・镜头・声音保持不变，只加入你在「接下来的动作」中写的动作和台词。\n写时间时请用**拼接后视频的时间**（例：从 6 秒重做则写 `6-8s: …`），会自动换算到新片段的时间。\n新片段以 t 之前的 22 帧（约 0.9 秒）和声音为上下文生成，并在 t 之前的 8 帧与原视频混合衔接。亮度・颜色・明暗也会对齐原视频。把「上下文长度」设为 39 帧（约 1.6 秒）会连 t 之前的动作一起继承，衔接更自然一些，生成约慢 4 成（区间替换固定 22 帧）。\n打开「只替换区间」后，只重做从 t 到「返回位置」的部分，之后回到原视频（前后的画面和声音都作为上下文）。开始和返回位置会自动稍微移到台词之外（显示在 STATUS）。\n结果以「拼接版」和「仅新部分」两条保存在 LIBRARY（原文件不变）",
+        "ko": "LIBRARY 영상의 뒷부분을 만들거나 중간부터 다시 만듭니다. **원본 영상의 메타데이터**(프롬프트·모드·RefMod·Turbo·Steps)를 자동으로 이어받아 인물·장소·구도·카메라·소리는 그대로 두고, 「이어지는 동작」에 쓴 움직임과 대사만 더합니다.\n시간은 **이어 붙인 영상의 시간**으로 쓰세요(예: 6 초부터 다시 만들려면 `6-8s: …`). 새 클립의 시간으로 자동 변환합니다.\n새 클립은 t 직전 22 프레임(약 0.9 초)과 소리를 이어받아 만들고, t 직전 8 프레임에서 원본과 섞어 잇습니다. 밝기·색·명암도 원본에 맞춥니다. 「문맥 길이」를 39 프레임(약 1.6 초)으로 하면 직전 움직임까지 이어받아 이음매가 조금 더 자연스러워지고, 생성은 약 40% 더 걸립니다(구간 교체는 22 프레임).\n「구간만 교체」를 켜면 t 부터 「돌아갈 위치」까지만 다시 만들고, 그 뒤는 원본 영상으로 돌아갑니다(앞뒤 영상과 소리를 모두 이어받습니다). 시작과 돌아갈 위치는 대사 중간에 걸리지 않도록 대사 밖으로 자동으로 조금 움직입니다(STATUS 에 표시).\n결과는 LIBRARY 에 「이어 붙인 것」과 「새 부분만」 2 개로 남습니다(원본 파일은 바뀌지 않습니다)"},
 })
 
 _UI = {}
@@ -1612,6 +1616,9 @@ def build_slot(ctx, slot):
                     _UI["turbo"] = gr.Dropdown(choices=[("元と同じ", "")] + _tc, value="", label="⚡ Turbo LoRA",
                                                elem_id="rt-turbo", container=True, filterable=False)
                     _UI["steps"] = gr.Slider(0, 50, step=1, value=0, label="Steps（0 で自動）", elem_id="rt-steps")
+                    # 0.16.0 文脈の長さ（セル193・利用者「速度か画質かを気軽に選べるといい」）。区間差し替えは 22 のまま
+                    _UI["ctx"] = gr.Dropdown(choices=[("22 コマ（速い）", 22), ("39 コマ（なめらか）", 39)],
+                                             value=22, label="文脈の長さ", elem_id="rt-ctx", container=True, filterable=False)
                     _UI["inherit"] = gr.Checkbox(value=True, label="元の設定を引き継ぐ", elem_id="rt-inherit")
                     _UI["run"] = gr.Button("🎬 RETAKE", elem_id="rt-run-btn")
                 with gr.Column(elem_classes=["panel"], elem_id="rt-status"):
@@ -1855,7 +1862,7 @@ def wire(ctx, comps):
     def _idle():
         return gr.update(value=T("🎬 RETAKE"), interactive=True)
 
-    def _run(src, t, extend, action, add, seed, inherit, turbo, steps_ui, rng_on, t2, *extra):
+    def _run(src, t, extend, action, add, seed, inherit, turbo, steps_ui, rng_on, t2, ctx_len, *extra):
         if not src or not os.path.isfile(str(src)):
             yield T("LIBRARY で動画を選んで「↪ RETAKE へ送る」か、SOURCE に動画を入れてください。"), gr.update()
             return
@@ -1885,7 +1892,8 @@ def wire(ctx, comps):
         last, res = "", None
         try:
             for st, r in retake(str(src), float(t or 0), float(add or 5), str(action), sd, mode=mode, steps=steps,
-                                use_audio=True, extend=bool(extend), inherit=bool(inherit), turbo=(turbo or None), **rkw):
+                                use_audio=True, extend=bool(extend), inherit=bool(inherit), turbo=(turbo or None),
+                                ctx_frames=(int(ctx_len or 22) if not rkw else None), **rkw):
                 last = st or last
                 if r is not None:
                     res = r
@@ -1896,7 +1904,7 @@ def wire(ctx, comps):
         yield str(last), (gr.update(value=res["joined"]) if res else gr.update())
 
     run_in = [_UI["src"], _UI["t"], _UI["extend"], _UI["action"], _UI["add"], _UI["seed"], _UI["inherit"],
-              _UI["turbo"], _UI["steps"], _UI["range"], _UI["t2"]] + extra_in
+              _UI["turbo"], _UI["steps"], _UI["range"], _UI["t2"], _UI["ctx"]] + extra_in
     # Turbo を選んだら Steps にその既定を入れる（「元と同じ」なら 0＝自動）。CREATE の Turbo と同じ動き
     _UI["turbo"].change(fn=lambda k: gr.update(value=int(_steps_for(k, None) or 0) if k else 0), inputs=[_UI["turbo"]],
                         outputs=[_UI["steps"]], queue=False, show_progress="hidden")
