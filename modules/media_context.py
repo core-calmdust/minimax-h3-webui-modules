@@ -56,6 +56,10 @@
        並びは SEGMENTS の写し（左 SOURCE と撮り直す位置／右 続きの挙動・足す長さ・Seed・引き継ぎ・RETAKE・RESULT）、書式は
        本体の CSS から SEGMENTS／LIBRARY の規則を id を替えて写す（_mirror_css）。本体は module_slot("lib_send")・("main_tabs") と
        comps の main_tabs・mode・steps を用意する。生成は concurrency_id="generate"（本体の生成と直列）
+0.4.1: 利用者の質問「元のプロンプトが 15 秒まで時刻つきで書いてあって、6 秒からリテイクして 6s〜と書いても成功するか」→ 2 つ直した:
+       ①元のプロンプトの時刻つきの文（0-5s: … など）を続きのプロンプトへ持ち込まない（元の時刻は新しいクリップの時刻と食い違い、
+         序盤の動きを演じ直す元になる）。構図・カメラ・終わり方の文も、時刻を含むものは外す
+       ②挙動の文に書いた時刻の終わり（例 6-12s → 12 秒）まで入るように「足す長さ」を自動で延ばす（上限 14 秒）
 0.3.6: セル185 v2（全体を合わせた後）: 鮮鋭度の谷 B22 0.62／B8 0.67／B3 0.65／CUT 0.80、コマ差の山 1.42／**1.19**／1.21／1.46 倍。
        利用者の目「B8 が一番改善」→ **既定の混ぜ方を最後の 8 コマに**（BLEND_DEFAULT）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
@@ -70,7 +74,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -134,6 +138,10 @@ I18N = {
         "en": "   Shifted {v0} time marks to the new clip's timeline (read as times in the joined video)",
         "zh": "   已将 {v0} 处时间指定换算到新片段的时间轴（按拼接后视频的时间理解）",
         "ko": "   시간 지정 {v0} 곳을 새 클립의 시간으로 옮겼습니다(이어 붙인 영상의 시간으로 읽습니다)"},
+    "   書いた時刻（〜{v0} 秒）まで入るように、足す長さを {v1} 秒にしました": {
+        "en": "   Set the length to add to {v1} s so the written times (up to {v0} s) fit",
+        "zh": "   为容纳所写的时间（至 {v0} 秒），已将追加长度设为 {v1} 秒",
+        "ko": "   쓴 시간(~{v0} 초)까지 들어가도록 추가 길이를 {v1} 초로 했습니다"},
     "   明るさ合わせ: 新しい部分を文脈の明るさに合わせました（×{v0}〜×{v1}）": {
         "en": "   Brightness match: the new part was matched to the context brightness (×{v0}–×{v1})",
         "zh": "   亮度对齐：已将新部分对齐到上下文的亮度（×{v0}〜×{v1}）",
@@ -485,7 +493,27 @@ def _sections(text):
 
 def _sentences(text):
     import re
-    return [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z<\[])", (text or "").strip()) if x.strip()]
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z<\[\d])", (text or "").strip()) if x.strip()]
+
+
+_TIME_RE = None
+
+
+def _has_time(text):
+    """時刻の指定（6-8s / 0:06 / At 00:06.000 の形）を含むか"""
+    import re
+    global _TIME_RE
+    if _TIME_RE is None:
+        _TIME_RE = re.compile(r"(?<![\d.:])\d+(?:\.\d+)?\s*[-–〜~]\s*\d+(?:\.\d+)?\s*s\b|(?<![\d.:])\d{1,2}:\d{2}(?:\.\d{1,3})?(?![\d:])")
+    return bool(_TIME_RE.search(text or ""))
+
+
+def _time_end(text):
+    """挙動の文に書いた時刻の最大（秒）。無ければ None"""
+    import re
+    ends = [float(b) for _a, b in re.findall(r"(?<![\d.:])(\d+(?:\.\d+)?)\s*[-–〜~]\s*(\d+(?:\.\d+)?)\s*s\b", text or "")]
+    ends += [int(mm) * 60 + float(ss) for mm, ss in re.findall(r"(?<![\d.:])(\d{1,2}):(\d{2}(?:\.\d{1,3})?)(?![\d:])", text or "")]
+    return max(ends) if ends else None
 
 
 def compose_prompt(original, action):
@@ -518,10 +546,13 @@ def compose_prompt(original, action):
     pre, mark, post = dd.partition("[Shot 1]")
     if not mark:
         pre, post = "", dd
-    ps = _sentences(post)
+    # 0.4.1 時刻つきの文（0-5s: … など。元のタイムラインの動き）は持ち込まない
+    ps = [x for x in _sentences(post) if not _has_time(x)]
     frame = ps[0] if ps else ""
     tail = [x for x in ps[1:] if ("camera" in x.lower() or x.lower().startswith("the shot ends")
                                   or x.lower().startswith("hands stay"))]
+    if _has_time(pre):
+        pre = " ".join(x for x in _sentences(pre) if not _has_time(x))
     out["detailed_description"] = " ".join(y for y in (pre.strip(), "[Shot 1] " + ("The same framing continues — " + frame if frame else "").strip(),
                                                         action, " ".join(tail)) if y).replace("  ", " ")
     return "\n\n".join(f"{k}:\n{out[k]}" for k in order)
@@ -640,6 +671,11 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
             act, nt = shift_times(prompt, (ti - int(g.get("MOTION_CTX_FRAMES", 22))) / fpsx)
             if nt:
                 notes.append(T("   時刻の指定 {v0} か所を、新しいクリップの時刻へずらしました（つないだ動画の時刻として読みます）", v0=nt))
+            te = _time_end(prompt)                                # 0.4.1 書いた時刻の終わりまで入るように延ばす
+            need = (te - ti / fpsx + 0.25) if te is not None else 0.0
+            if need > float(add_sec):
+                add_sec = min(14.0, need)
+                notes.append(T("   書いた時刻（〜{v0} 秒）まで入るように、足す長さを {v1} 秒にしました", v0=f"{te:g}", v1=f"{add_sec:.1f}"))
         except Exception:                                         # noqa: BLE001
             act = prompt
     full = compose_prompt(str(m.get("prompt")), act)
