@@ -83,7 +83,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -108,6 +108,24 @@ I18N = {
         "ko": "🎬 Retake: {v0} 의 {v1} 초부터 {v2} 초 분량을 만듭니다(문맥 {v3} 프레임·음성 {v4})"},
     "あり": {"en": "yes", "zh": "有", "ko": "있음"},
     "前後あり": {"en": "before and after", "zh": "前后都有", "ko": "앞뒤 모두"},
+    "参照": {"en": "References", "zh": "参考", "ko": "참조"},
+    "参照ファイル": {"en": "Reference files", "zh": "参考文件", "ko": "참조 파일"},
+    "元の動画は参照も RefMod も使っていません": {"en": "The source uses no references or RefMods",
+                                              "zh": "原视频没有使用参考或 RefMod", "ko": "원본 영상은 참조도 RefMod 도 사용하지 않았습니다"},
+    "ファイルが見つかりません": {"en": "File not found", "zh": "找不到文件", "ko": "파일을 찾을 수 없습니다"},
+    "参照ファイル {v0} 件": {"en": "{v0} reference file(s)", "zh": "参考文件 {v0} 个", "ko": "참조 파일 {v0} 개"},
+    "見つからないもの {v0} 件": {"en": "{v0} missing", "zh": "缺失 {v0} 个", "ko": "없음 {v0} 개"},
+    "参照 {v0} 件": {"en": "{v0} reference(s)", "zh": "参考 {v0} 个", "ko": "참조 {v0} 개"},
+    "元の動画の参照（{v0} 件）": {"en": "References of the source ({v0})", "zh": "原视频的参考（{v0} 个）", "ko": "원본 영상의 참조({v0} 개)"},
+    "人物と参照（{v0} 人）": {"en": "Subjects and references ({v0})", "zh": "人物与参考（{v0} 人）", "ko": "인물과 참조({v0} 명)"},
+    "参照のラベルが書かれていません": {"en": "No reference label in the definition", "zh": "定义中没有写参考标签",
+                                    "ko": "정의에 참조 라벨이 없습니다"},
+    "   参照ファイル: {v0}": {"en": "   Reference files: {v0}", "zh": "   参考文件：{v0}", "ko": "   참조 파일: {v0}"},
+    "⚠️ 元の動画の参照ファイルが見つかりません（参照なしで作るので、RefMod のラベルの番号が前へずれます。参照ファイルは起動し直すと消えることがあります）": {
+        "en": "⚠️ The source's reference files were not found (making it without them shifts the RefMod label numbers forward; "
+              "reference files can disappear after a restart)",
+        "zh": "⚠️ 找不到原视频的参考文件（不带参考生成，RefMod 的标签编号会往前移；重新启动后参考文件可能会消失）",
+        "ko": "⚠️ 원본 영상의 참조 파일을 찾을 수 없습니다(참조 없이 만들면 RefMod 라벨 번호가 앞으로 밀립니다. 참조 파일은 다시 시작하면 사라질 수 있습니다)"},
     "🎬 区間差し替え（両側の文脈）: {v0} の {v1}〜{v2} 秒を作り直して元へ戻します（文脈 前後 {v3} コマ・音声 {v4}）": {
         "en": "🎬 Range replace (both-side context): remaking {v1}–{v2} s of {v0} and returning to the source "
               "(context {v3} frames before and after, audio {v4})",
@@ -916,6 +934,18 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
             notes.append(T("   RefMod: {v0}", v0=" / ".join(names) or "—"))
             if miss:
                 notes.append(T("⚠️ 見つからない RefMod があります（無しで作ります）: {v0}", v0=" / ".join(miss)))
+        # 0.8.0 参照ファイルも引き継ぐ（無いと RefMod のラベルが前へずれて、<Picture 3> が別の絵を指す）
+        if g["is_ref_mode"](mode) and not any((refs_by_kind or {}).get(k) for k in g["REF_KINDS"]):
+            rf = m.get("reference_files") or {}
+            want = {k: int((m.get("references") or {}).get(k) or 0) for k in g["REF_KINDS"]}
+            have = {k: [p for p in (rf.get(k) or []) if os.path.isfile(p)] for k in g["REF_KINDS"]}
+            if sum(want.values()):
+                if all(len(have[k]) >= want[k] for k in g["REF_KINDS"]):
+                    refs_by_kind = {k: have[k][:want[k]] for k in g["REF_KINDS"]}
+                    notes.append(T("   参照ファイル: {v0}", v0=" / ".join(os.path.basename(p) for k in g["REF_KINDS"]
+                                                                       for p in refs_by_kind[k])))
+                else:
+                    notes.append(T("⚠️ 元の動画の参照ファイルが見つかりません（参照なしで作るので、RefMod のラベルの番号が前へずれます。参照ファイルは起動し直すと消えることがあります）"))
         yield ("\n".join(notes), None)
         last = ""
         for st, r in _retake_core(src, t, add_sec, full, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend, t_end, end_key, tail_ctx):
@@ -986,6 +1016,7 @@ _MIRROR = {                                                       # SEGMENTS / L
     "#seg-len": ["#rt-t", "#rt-add", "#rt-steps"],
     "#lib-up-btn": ["#lib-rt-btn"],
     "#status-panel": ["#rt-status"], "#refmod-pick": ["#rt-refmods"], "#lora-dd": ["#rt-turbo"],   # 0.5.0
+    "#refmod-info": ["#rt-refmods"],                              # 0.8.0 参照のカード（CREATE の RefMod の一覧の書式）
 }
 CSS = ""                                                          # setup で本体の CSS から作る（本体と同じ値を二重に持たない）
 CSS_EXTRA = """
@@ -1003,6 +1034,12 @@ CSS_EXTRA = """
 #rt-status, #rt-refmods { margin-left: 12px !important; margin-right: 12px !important; width: calc(100% - 24px) !important; min-width: 0 !important; flex-grow: 0 !important; }
 #rt-left > * { flex: 0 0 auto !important; }
 #rt-time > *, #rt-act > * { margin-top: 0 !important; }
+/* 0.8.0 参照のカード（CREATE の #refmod-info の写し）。カードは 240px から並べる（CREATE の 340px だと左の列では常に 1 列で縦に長くなる）、節どうしの間は箱の間と同じ 16px。
+   RETAKE のサムネイルは押しても何も起きないので、指のカーソルと縁の色は出さない */
+#rt-refmods .rm-items { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)) !important; }
+#rt-refmods .rt-sec + .rt-sec { margin-top: var(--layout-gap, 16px); }
+#rt-refmods .rm-ref { cursor: default !important; }
+#rt-refmods .rm-ref:hover img, #rt-refmods .rm-ref:hover .rm-noimg { border-color: transparent !important; }
 """
 
 
@@ -1132,7 +1169,7 @@ def build_slot(ctx, slot):
                     _UI["t"] = gr.Slider(0.0, 10.0, value=10.0, step=round(1 / 24.0, 5), label="撮り直す位置（秒）",
                                          interactive=False, elem_id="rt-t")
                     _UI["pos"] = gr.Button("▶ 再生位置を使う", elem_id="rt-pos-btn")
-                _UI["rm"] = gr.HTML(_refmod_html([]), elem_id="rt-refmods")
+                _UI["rm"] = gr.HTML(_refs_html({}), elem_id="rt-refmods")
             with gr.Column(scale=1, elem_id="rt-right"):
                 with gr.Column(elem_classes=["panel"], elem_id="rt-act"):
                     _UI["action"] = gr.Textbox(label="続きの挙動（動き・セリフ）", lines=5, elem_id="rt-action",
@@ -1163,29 +1200,158 @@ def build_slot(ctx, slot):
                 pass
 
 
-def _refmod_html(names):
-    """0.5.0 元の動画の RefMod を CREATE のピッカーと同じタイル・番号で（押しても何も起きない表示だけ）"""
+# ------------------------------------------------------------------
+#  0.8.0 元の動画の参照の並び（参照ファイル＋RefMod → <Picture N> などのラベル）と、<Subject N> がどれを使っているか
+# ------------------------------------------------------------------
+_LAB = {"image": "Picture", "video": "Video", "audio": "Audio"}
+_ICON = {"image": "🖼", "video": "🎞", "audio": "🔊"}
+
+
+def _file_thumb(path, kind, size=104):
+    """参照ファイルの小さなサムネイル（data URI）。画像はそのまま、動画は最初のコマ。読めなければ ""。"""
+    import base64
+    import io
+    from PIL import Image
+    try:
+        if kind == "image":
+            im = Image.open(path).convert("RGB")
+        elif kind == "video":
+            import cv2
+            cap = cv2.VideoCapture(path)
+            ok, fr = cap.read()
+            cap.release()
+            if not ok:
+                return ""
+            im = Image.fromarray(fr[:, :, ::-1])
+        else:
+            return ""
+        im.thumbnail((size, size))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=80)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:                                             # noqa: BLE001
+        return ""
+
+
+def ref_entries(m):
+    """元の動画のメタ → DiT に入った並びの参照 [{label, kind, owner, no, thumb, missing}]。
+    番号は本体の refmod_list_html と同じ: 種類ごとに、参照ファイルの数から続けて RefMod の中身を数える（強さ 0 の RefMod は数えない）。
+    owner … "" は参照ファイル、それ以外は RefMod の名前。no … RefMod の選んだ順（参照ファイルは 0）"""
+    g = _g()
+    kinds = ("image", "video", "audio")
+    files = m.get("reference_files") or {}
+    counts = m.get("references") or {}
+    out, cnt = [], {k: 0 for k in kinds}
+    for k in kinds:
+        paths = list(files.get(k) or [])
+        n = max(len(paths), int(counts.get(k) or 0))
+        for i in range(n):
+            p = paths[i] if i < len(paths) else ""
+            ok = bool(p) and os.path.isfile(p)
+            cnt[k] += 1
+            out.append(dict(label=f"<{_LAB[k]} {cnt[k]}>", kind=k, owner="", no=0, name=os.path.basename(p) if p else "",
+                            path=p if ok else "", thumb=_file_thumb(p, k) if ok else "", missing=not ok))
+    mr = m.get("refmods") or {}
+    each = mr.get("each") or {}
+    stg = float(mr.get("strength", 1.0) or 1.0)
+    for no, name in enumerate(mr.get("names") or [], 1):
+        if stg * float(each.get(name, 1.0)) <= 0.0:
+            continue
+        try:
+            items, _meta = g["refmod_load"](name)
+        except Exception:                                         # noqa: BLE001
+            out.append(dict(label="?", kind="image", owner=name, no=no, name=name, path="", thumb="", missing=True))
+            continue
+        for i, (k, _z) in enumerate(items):
+            cnt[k] = cnt.get(k, 0) + 1
+            try:
+                th = g["_refmod_thumb_uri"](name, i) if k != "audio" else ""
+            except Exception:                                     # noqa: BLE001
+                th = ""
+            out.append(dict(label=f"<{_LAB.get(k, 'Picture')} {cnt[k]}>", kind=k, owner=name, no=no, name=name,
+                            path="", thumb=th, missing=False))
+    return out
+
+
+def subject_map(prompt, entries):
+    """<Subject N> の定義の文 → [(N, 定義の文, [使っているラベル])]。`<RefMod N>`／`<Chara N>` が残っていれば N 番目の RefMod の中身"""
+    import re
+    order, body = _sections(prompt or "")
+    text = body.get("subject_definitions") or ""
+    if not text:                                                  # 節が無い書き方: 文から「<Subject N> is …」を拾う
+        text = " ".join(x for x in _sentences(prompt or "") if re.match(r"<\s*Subject\s*\d+\s*>\s+(is|are)\b", x, re.I))
+    hits = list(re.finditer(r"<\s*Subject\s*(\d+)\s*>\s+(?:is|are)\b", text, re.I))
+    res, seen = [], set()
+    for i, h in enumerate(hits):
+        n = int(h.group(1))
+        if n in seen:
+            continue
+        seen.add(n)
+        d = text[h.start():hits[i + 1].start() if i + 1 < len(hits) else len(text)].strip()
+        labs = []
+        for x in re.finditer(r"<\s*(Picture|Video|Audio)\s*(\d+)\s*>", d, re.I):
+            labs.append(f"<{x.group(1).capitalize()} {int(x.group(2))}>")
+        for x in re.finditer(r"<\s*(?:RefMod|Chara|Character)\s*(\d+)\s*>", d, re.I):
+            labs += [e["label"] for e in entries if e["no"] == int(x.group(1))]
+        res.append((n, d, list(dict.fromkeys(labs))))
+    return res
+
+
+def _refs_html(m):
+    """0.8.0 元の動画の参照（参照ファイル・RefMod）を CREATE の RefMod の一覧と同じカードで並べ、その下に <Subject N> ごとの使っている参照"""
     import html as _html
     esc = _html.escape
-    g = _g() if _ST.get("ctx") else {}
-    T = _T if _ST.get("ctx") else (lambda s, **k: s.format(**k) if k else s)
-    if not names:
-        return (f'<div class="rmp-wrap"><div class="rmp-head"><span>{esc(T("RefMod"))}</span></div>'
-                f'<div class="rmp-empty">{esc(T("元の動画は RefMod を使っていません"))}</div></div>')
-    tiles = []
-    for no, n in enumerate(names, 1):
-        try:
-            src = g["_refmod_thumb_src"](n) if "_refmod_thumb_src" in g else ""
-        except Exception:                                         # noqa: BLE001
-            src = ""
-        leaf = g["_rmm_leaf"](n) if "_rmm_leaf" in g else n.split("/")[-1]
-        pic = (f'<img src="{esc(src)}" alt="" loading="lazy" draggable="false">' if src
-               else '<span class="rmp-noimg">🧬</span>')
-        tiles.append(f'<div class="rmp-tile on" title="{esc(n)}">{pic}<span class="rmp-no">{no}</span>'
-                     f'<span class="rmp-cap">{esc(leaf)}</span></div>')
-    head = T("元の動画の RefMod（{v0} 件）", v0=len(names))
-    return (f'<div class="rmp-wrap"><div class="rmp-head"><span>{esc(head)}</span></div>'
-            f'<div class="rmp-grid">{"".join(tiles)}</div></div>')
+    T = _T
+    ents = ref_entries(m) if m.get("prompt") else []
+    if not ents:
+        return (f'<div class="rmp-wrap"><div class="rmp-head"><span>{esc(T("参照"))}</span></div>'
+                f'<div class="rmp-empty">{esc(T("元の動画は参照も RefMod も使っていません"))}</div></div>')
+    by = {e["label"]: e for e in ents}
+
+    def cell(e):
+        tip = e["label"] + (f" {e['name']}" if e["name"] else "") + ("\n" + T("ファイルが見つかりません") if e["missing"] and not e["owner"] else "")
+        pic = (f'<img src="{esc(e["thumb"])}" alt="" draggable="false">' if e["thumb"]
+               else f'<span class="rm-noimg">{_ICON.get(e["kind"], "🎞")}</span>')
+        return f'<div class="rm-ref" title="{esc(tip)}">{pic}<div class="rm-cap">{esc(e["label"])}</div></div>'
+
+    cards = []
+    refs = [e for e in ents if not e["owner"]]
+    if refs:
+        miss = sum(1 for e in refs if e["missing"])
+        sub = T("参照ファイル {v0} 件", v0=len(refs)) + ("・" + T("見つからないもの {v0} 件", v0=miss) if miss else "")
+        cards.append(f'<div class="rm-item"><div class="rm-head"><div class="rm-hl"><div class="rm-name">'
+                     f'<span class="rm-title">{esc(T("参照ファイル"))}</span></div><div class="rm-sub">{esc(sub)}</div></div></div>'
+                     f'<div class="rm-refs">{"".join(cell(e) for e in refs)}</div></div>')
+    nos = []
+    for e in ents:
+        if e["owner"] and e["no"] not in nos:
+            nos.append(e["no"])
+    for no in nos:
+        es = [e for e in ents if e["owner"] and e["no"] == no]
+        cards.append(f'<div class="rm-item"><div class="rm-head"><div class="rm-hl"><div class="rm-name">'
+                     f'<span class="rm-no">{no}</span><span class="rm-title" title="{esc(es[0]["name"])}">{esc(es[0]["name"])}</span></div>'
+                     f'<div class="rm-sub">{esc(T("参照 {v0} 件", v0=len(es)))}</div></div></div>'
+                     f'<div class="rm-refs">{"".join(cell(e) for e in es)}</div></div>')
+    head = T("元の動画の参照（{v0} 件）", v0=len(ents))
+    html = (f'<div class="rmp-wrap"><div class="rt-sec"><div class="rmp-head"><span>{esc(head)}</span></div>'
+            f'<div class="rm-box"><div class="rm-items">{"".join(cards)}</div></div></div>')
+    subs = subject_map(str(m.get("prompt") or ""), ents)
+    if subs:
+        rows = []
+        for n, d, labs in subs:
+            import re as _re
+            desc = d.split(":", 1)[1].strip() if ":" in d[:200] else _re.sub(r"^<\s*Subject\s*\d+\s*>\s+(?:is|are)\s+", "", d, flags=_re.I)
+            cells = "".join(cell(by[x]) if x in by else
+                            f'<div class="rm-ref" title="{esc(x)}"><span class="rm-noimg">？</span><div class="rm-cap">{esc(x)}</div></div>'
+                            for x in labs)
+            sub = desc if cells else T("参照のラベルが書かれていません") + " ・ " + desc
+            rows.append(f'<div class="rm-item" title="{esc(d)}"><div class="rm-head"><div class="rm-hl"><div class="rm-name">'
+                        f'<span class="rm-title">{esc(f"<Subject {n}>" + (" → " + "・".join(labs) if labs else ""))}</span></div>'
+                        f'<div class="rm-sub">{esc(sub)}</div></div></div>'
+                        + (f'<div class="rm-refs">{cells}</div>' if cells else '') + '</div>')
+        html += (f'<div class="rt-sec"><div class="rmp-head"><span>{esc(T("人物と参照（{v0} 人）", v0=len(subs)))}</span></div>'
+                 f'<div class="rm-box"><div class="rm-items">{"".join(rows)}</div></div></div>')
+    return html + '</div>'
 
 
 def _load_source(path):
@@ -1216,9 +1382,8 @@ def _load_source(path):
     else:
         lines.append(T("メタ（プロンプト）が無い動画です。「元の設定を引き継ぐ」は使えません"))
     mn = round(int(g.get("MOTION_CTX_FRAMES", 22)) / fpsx + 0.01, 2)
-    rm_names = list((m.get("refmods") or {}).get("names") or []) if m.get("prompt") else []
     return (path, gr.update(value=path), "\n\n".join(lines),
-            gr.update(minimum=mn, maximum=max(mn, dur), value=dur), "", _refmod_html(rm_names))
+            gr.update(minimum=mn, maximum=max(mn, dur), value=dur), "", _refs_html(m if m.get("prompt") else {}))
 
 
 def wire(ctx, comps):
