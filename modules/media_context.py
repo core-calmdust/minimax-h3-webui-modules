@@ -52,6 +52,8 @@
 0.3.5: セル185（184 の生成に 0.3.4 の合わせを掛け直し）: 鮮鋭度の谷 B22 0.67／B8 0.75／B3 0.69／CUT 0.83、コマ差の山 1.52／1.51／1.51／1.42 倍。
        混ぜる案だけ山が増えたのは、合わせを新しい部分（t の後）にしか掛けず、描き直しの 22 コマは元のままだったため
        （B8 で混ぜ終わり 60.5 → t の後 58.8 と明るさが食い違う）→ 描き直しの 22 コマも含めてクリップ全体を文脈に合わせる
+0.3.6: セル185 v2（全体を合わせた後）: 鮮鋭度の谷 B22 0.62／B8 0.67／B3 0.65／CUT 0.80、コマ差の山 1.42／**1.19**／1.21／1.46 倍。
+       利用者の目「B8 が一番改善」→ **既定の混ぜ方を最後の 8 コマに**（BLEND_DEFAULT）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
 """
 import datetime
@@ -64,7 +66,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.3.5"
+VERSION = "0.3.6"
 API = 1
 SLOTS = ()
 
@@ -73,6 +75,7 @@ AUDIO_WIN_BEFORE = 4.0                  # 音声の文脈を取るとき、t の
 AUDIO_WIN_AFTER = 0.5                   # t の後ろも少し含めてエンコードする（窓の終わりの端の癖を文脈に入れない）
 AUDIO_XFADE_MS = 20                     # t で元の音と新しい音をつなぐ短いクロスフェード
 POLL_SEC = 0.5
+BLEND_DEFAULT = 8                       # 0.3.6 元と描き直しを混ぜるコマ数（t の直前の 8 コマ。セル185 v2・利用者の目で決定）
 TONE_WIN = 25                           # 0.3.1 明るさの流れを見る幅（コマ。中央値）
 TONE_PCT = (1, 5, 10, 25, 50, 75, 90, 95, 99)   # 0.3.4 トーンカーブを合わせる明るさの分位（%）
 TONE_DARK = 16.0                        # 0.3.4 これより暗い所は比ではなく差で直す（比が暴れてノイズが立つのを防ぐ）
@@ -384,7 +387,7 @@ def _retake_core(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, st
         except Exception as e:                                    # noqa: BLE001
             lines.append(T("⚠️ 明るさ合わせに失敗しました（そのまま書き出します）: {v0}", v0=f"{e}"))
     # 先頭 22 コマ（文脈の描き直し）のうち最後の L コマを元のコマと滑らかに混ぜる。L＝0 なら t で切り替え（元は t まで全部使う）
-    L = ctx_n if blend is None else max(0, min(ctx_n, int(blend)))
+    L = min(ctx_n, BLEND_DEFAULT) if blend is None else max(0, min(ctx_n, int(blend)))
     joined_head = g["_blend_head"](frames[ctx_n - L:], ctx_px[ctx_n - L:], L) if L > 0 else frames[ctx_n:]
     stamp = datetime.datetime.now().strftime("%H%M%S")
     od = str(out_dir) if out_dir else "/content"
