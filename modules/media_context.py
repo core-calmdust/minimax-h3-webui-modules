@@ -60,6 +60,10 @@
        ①元のプロンプトの時刻つきの文（0-5s: … など）を続きのプロンプトへ持ち込まない（元の時刻は新しいクリップの時刻と食い違い、
          序盤の動きを演じ直す元になる）。構図・カメラ・終わり方の文も、時刻を含むものは外す
        ②挙動の文に書いた時刻の終わり（例 6-12s → 12 秒）まで入るように「足す長さ」を自動で延ばす（上限 14 秒）
+0.5.0: 利用者要望（2026-10-24）: ①Turbo LoRA を選べる（既定「元と同じ」。選んだら Steps はその LoRA の既定＝本体 steps_for_lora）
+       ②使っている RefMod を絵で出す（CREATE の RefMod ピッカーと同じタイル・番号。#refmod-pick の書式を写す）
+       ③処理の状況を他のタブと同じ STATUS の箱に出す（#status-panel の書式を写す）
+       ④Steps も選べる（0＝自動: 元と同じ／選んだ Turbo の既定。Turbo を選ぶとその既定が入る＝CREATE と同じ動き）
 0.3.6: セル185 v2（全体を合わせた後）: 鮮鋭度の谷 B22 0.62／B8 0.67／B3 0.65／CUT 0.80、コマ差の山 1.42／**1.19**／1.21／1.46 倍。
        利用者の目「B8 が一番改善」→ **既定の混ぜ方を最後の 8 コマに**（BLEND_DEFAULT）
 本体の関数（_run_pipe・ensure_mode・_blend_head・_mux_audio など）を借りて動く。単体では動かない。
@@ -74,7 +78,7 @@ import time
 import numpy as np
 
 NAME = "media_context"
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 API = 1
 
 AUDIO_LAT_PER_SEC = 40.0                # 音声 VAE の潜在の速さ（diffusers の MINIMAX_H3_AUDIO_LATENTS_PER_SECOND）
@@ -558,6 +562,21 @@ def compose_prompt(original, action):
     return "\n\n".join(f"{k}:\n{out[k]}" for k in order)
 
 
+def _steps_for(key, mode):
+    """Turbo LoRA → Steps（本体 steps_for_lora。無ければカタログの forwards）"""
+    g = _g()
+    try:
+        v = g["steps_for_lora"](key, False, mode)
+        if v:
+            return int(v)
+    except Exception:                                             # noqa: BLE001
+        pass
+    try:
+        return int((g.get("TURBO_CATALOG") or {}).get(key, {}).get("forwards") or 0) or None
+    except Exception:                                             # noqa: BLE001
+        return None
+
+
 def _meta_settings(src):
     g = _g()
     m = g["read_meta"](src) or {}
@@ -647,15 +666,34 @@ def shift_times(text, off):
 
 
 def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=None, use_audio=True, extend=False,
-           shift=False, out_dir=None, inherit=False, tone=True, blend=None):
-    """Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
+           shift=False, out_dir=None, inherit=False, tone=True, blend=None, turbo=None):
+    """0.5.0 turbo … Turbo LoRA の名前（空なら inherit のときは元のもの、そうでなければいまのもの）。選ぶと Steps はその LoRA の既定。
+    Retake の入口。inherit=True なら元の動画のメタからモード・RefMod・Turbo・Steps を引き継ぎ、
     prompt が「挙動だけ」なら元のプロンプトと合わせる（compose_prompt）。生成が終われば本体の選択は元に戻す"""
     g = _g()
     T = _T
     if not inherit:
-        yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend)
+        if not turbo:
+            yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, steps, use_audio, extend, shift, out_dir, tone, blend)
+            return
+        key0 = g["turbo_key"]()
+        str0 = float(g["_LORA_STATE"].get("strength", 1.0))
+        try:
+            if turbo != key0:
+                g["install_turbo_lora"](turbo, verbose=False)
+            g["set_turbo_strength"](1.0)
+            st_ = steps or _steps_for(turbo, mode)
+            yield from _retake_core(src, t, add_sec, prompt, seed, mode, refs_by_kind, st_, use_audio, extend, shift, out_dir, tone, blend)
+        finally:
+            try:
+                if g["turbo_key"]() != key0:
+                    g["install_turbo_lora"](key0, verbose=False)
+                g["set_turbo_strength"](str0)
+            except Exception as e:                                # noqa: BLE001
+                g["log"](f"⚠️ 元の Turbo LoRA に戻せませんでした: {e}")
         return
     m, m_mode = _meta_settings(src)
+    user_steps = int(steps) if steps else 0                       # 0.5.0 画面で選んだ Steps（0＝自動）
     notes = []
     if not m.get("prompt"):
         notes.append(T("⚠️ 元の動画にメタ（プロンプト）が無いので引き継げません。書いたプロンプトのまま作ります"))
@@ -687,6 +725,11 @@ def retake(src, t, add_sec, prompt, seed, mode=None, refs_by_kind=None, steps=No
     m_key = str(m.get("lora") or "")
     m_str = float(m.get("lora_strength", 1.0) or 1.0)
     steps = int(m.get("steps") or steps or 4)
+    if turbo and turbo != m_key:                                  # 0.5.0 選んだ Turbo LoRA（強さ 1.0、Steps はその LoRA の既定）
+        m_key, m_str = str(turbo), 1.0
+        steps = _steps_for(turbo, mode) or steps
+    if user_steps > 0:                                            # 0.5.0 Steps を選んだらそれを使う
+        steps = user_steps
     rm = g.get("_REFMOD")
     rm0 = None
     try:
@@ -764,8 +807,9 @@ _MIRROR = {                                                       # SEGMENTS / L
     "#seg-preview-box": ["#rt-src-box", "#rt-out-box"], "#seg-detail": ["#rt-detail"],
     "#seg-act": ["#rt-act", "#rt-time"], "#seg-reseed": ["#rt-extend", "#rt-inherit"],
     "#seg-concat-btn": ["#rt-pos-btn", "#rt-run-btn"], "#seg-msg": ["#rt-msg"], "#seg-note": ["#rt-note"],
-    "#seg-len": ["#rt-t", "#rt-add"],
+    "#seg-len": ["#rt-t", "#rt-add", "#rt-steps"],
     "#lib-up-btn": ["#lib-rt-btn"],
+    "#status-panel": ["#rt-status"], "#refmod-pick": ["#rt-refmods"], "#lora-dd": ["#rt-turbo"],   # 0.5.0
 }
 CSS = ""                                                          # setup で本体の CSS から作る（本体と同じ値を二重に持たない）
 CSS_EXTRA = """
@@ -779,6 +823,8 @@ CSS_EXTRA = """
 #rt-run-btn { margin-top: 8px !important; }
 /* 左の列は伸ばさない（SEGMENTS の左は一覧が伸びるが、RETAKE の左は SOURCE と位置の箱だけ。伸ばすと間が空く） */
 #rt-left { justify-content: flex-start !important; }
+/* 0.5.0 STATUS と RefMod の箱は、ほかの箱（SEGMENTS の写し＝列の内側に左右 12px）と左右の端をそろえる */
+#rt-status, #rt-refmods { margin-left: 12px !important; margin-right: 12px !important; width: calc(100% - 24px) !important; min-width: 0 !important; flex-grow: 0 !important; }
 #rt-left > * { flex: 0 0 auto !important; }
 #rt-time > *, #rt-act > * { margin-top: 0 !important; }
 """
@@ -835,6 +881,13 @@ I18N.update({
     "元の設定を引き継ぐ": {"en": "Inherit the source settings", "zh": "继承原视频设置", "ko": "원본 설정 이어받기"},
     "🎬 RETAKE": {"en": "🎬 RETAKE", "zh": "🎬 RETAKE", "ko": "🎬 RETAKE"},
     "⏳ 生成中…": {"en": "⏳ Generating…", "zh": "⏳ 生成中…", "ko": "⏳ 생성 중…"},
+    "元と同じ": {"en": "Same as source", "zh": "与原视频相同", "ko": "원본과 같음"},
+    "Steps（0 で自動）": {"en": "Steps (0 = auto)", "zh": "Steps（0 为自动）", "ko": "Steps(0 은 자동)"},
+    "元の動画は RefMod を使っていません": {"en": "The source video does not use RefMods", "zh": "原视频未使用 RefMod",
+                                       "ko": "원본 영상은 RefMod 를 쓰지 않습니다"},
+    "元の動画の RefMod（{v0} 件）": {"en": "RefMods of the source ({v0})", "zh": "原视频的 RefMod（{v0} 个）",
+                                 "ko": "원본 영상의 RefMod({v0} 개)"},
+    "RefMod": {"en": "RefMod", "zh": "RefMod", "ko": "RefMod"},
     "例: <Subject 2> laughs and says <d>[Japanese] …</d>（人物・場所・カメラは書かなくてよい）": {
         "en": "e.g. <Subject 2> laughs and says <d>[Japanese] …</d> (no need to describe people, place or camera)",
         "zh": "例：<Subject 2> laughs and says <d>[Japanese] …</d>（不必写人物・地点・镜头）",
@@ -903,15 +956,25 @@ def build_slot(ctx, slot):
                     _UI["t"] = gr.Slider(0.0, 10.0, value=10.0, step=round(1 / 24.0, 5), label="撮り直す位置（秒）",
                                          interactive=False, elem_id="rt-t")
                     _UI["pos"] = gr.Button("▶ 再生位置を使う", elem_id="rt-pos-btn")
+                _UI["rm"] = gr.HTML(_refmod_html([]), elem_id="rt-refmods")
             with gr.Column(scale=1, elem_id="rt-right"):
                 with gr.Column(elem_classes=["panel"], elem_id="rt-act"):
                     _UI["action"] = gr.Textbox(label="続きの挙動（動き・セリフ）", lines=5, elem_id="rt-action",
                                                placeholder="例: <Subject 2> laughs and says <d>[Japanese] …</d>（人物・場所・カメラは書かなくてよい）")
                     _UI["add"] = gr.Slider(4.0, 14.0, value=5.0, step=0.5, label="足す長さ（秒）", elem_id="rt-add")
                     _UI["seed"] = gr.Number(value=-1, precision=0, label="Seed（−1 で元＋1）", elem_id="rt-seed")
+                    try:
+                        _tc = list(g["turbo_choices"]())
+                    except Exception:                             # noqa: BLE001
+                        _tc = []
+                    _UI["turbo"] = gr.Dropdown(choices=[("元と同じ", "")] + _tc, value="", label="⚡ Turbo LoRA",
+                                               elem_id="rt-turbo", container=True, filterable=False)
+                    _UI["steps"] = gr.Slider(0, 50, step=1, value=0, label="Steps（0 で自動）", elem_id="rt-steps")
                     _UI["inherit"] = gr.Checkbox(value=True, label="元の設定を引き継ぐ", elem_id="rt-inherit")
                     _UI["run"] = gr.Button("🎬 RETAKE", elem_id="rt-run-btn")
-                    _UI["msg"] = gr.Markdown("", elem_id="rt-msg")
+                with gr.Column(elem_classes=["panel"], elem_id="rt-status"):
+                    _UI["msg"] = gr.Textbox(label="STATUS", lines=8, max_lines=int(g.get("STATUS_MAX_LINES", 200)),
+                                            interactive=False, value="")
                 with gr.Column(elem_classes=["panel"], elem_id="rt-out-box"):
                     _UI["out"] = gr.Video(label="RESULT", autoplay=True, height=box_h, interactive=False,
                                           elem_id="rt-out-video", buttons=g.get("BTN_MEDIA"))
@@ -924,6 +987,31 @@ def build_slot(ctx, slot):
                 pass
 
 
+def _refmod_html(names):
+    """0.5.0 元の動画の RefMod を CREATE のピッカーと同じタイル・番号で（押しても何も起きない表示だけ）"""
+    import html as _html
+    esc = _html.escape
+    g = _g() if _ST.get("ctx") else {}
+    T = _T if _ST.get("ctx") else (lambda s, **k: s.format(**k) if k else s)
+    if not names:
+        return (f'<div class="rmp-wrap"><div class="rmp-head"><span>{esc(T("RefMod"))}</span></div>'
+                f'<div class="rmp-empty">{esc(T("元の動画は RefMod を使っていません"))}</div></div>')
+    tiles = []
+    for no, n in enumerate(names, 1):
+        try:
+            src = g["_refmod_thumb_src"](n) if "_refmod_thumb_src" in g else ""
+        except Exception:                                         # noqa: BLE001
+            src = ""
+        leaf = g["_rmm_leaf"](n) if "_rmm_leaf" in g else n.split("/")[-1]
+        pic = (f'<img src="{esc(src)}" alt="" loading="lazy" draggable="false">' if src
+               else '<span class="rmp-noimg">🧬</span>')
+        tiles.append(f'<div class="rmp-tile on" title="{esc(n)}">{pic}<span class="rmp-no">{no}</span>'
+                     f'<span class="rmp-cap">{esc(leaf)}</span></div>')
+    head = T("元の動画の RefMod（{v0} 件）", v0=len(names))
+    return (f'<div class="rmp-wrap"><div class="rmp-head"><span>{esc(head)}</span></div>'
+            f'<div class="rmp-grid">{"".join(tiles)}</div></div>')
+
+
 def _load_source(path):
     """SOURCE に入れる動画 → (状態, 動画, 詳細, t のスライダー, メッセージ)"""
     gr = _ST["ctx"].gr
@@ -931,14 +1019,14 @@ def _load_source(path):
     T = _T
     path = getattr(path, "name", path)
     if not path or not os.path.isfile(str(path)):
-        return None, gr.update(), "", gr.update(), T("LIBRARY でファイルを選んでください")
+        return None, gr.update(), "", gr.update(), T("LIBRARY でファイルを選んでください"), gr.update()
     path = str(path)
     if g.get("is_still") and g["is_still"](path):
-        return None, gr.update(), "", gr.update(), T("静止画は RETAKE できません（動画を選んでください）")
+        return None, gr.update(), "", gr.update(), T("静止画は RETAKE できません（動画を選んでください）"), gr.update()
     try:
         w, h, n, fps, _a = g["_probe_video"](path)
     except Exception as e:                                        # noqa: BLE001
-        return None, gr.update(), "", gr.update(), T("❌ 動画を読めませんでした: {v0}", v0=f"{e}")
+        return None, gr.update(), "", gr.update(), T("❌ 動画を読めませんでした: {v0}", v0=f"{e}"), gr.update()
     fpsx = float(g.get("FPS", 24))
     dur = round(int(n) / fpsx, 3)
     m = g["read_meta"](path) or {}
@@ -952,8 +1040,9 @@ def _load_source(path):
     else:
         lines.append(T("メタ（プロンプト）が無い動画です。「元の設定を引き継ぐ」は使えません"))
     mn = round(int(g.get("MOTION_CTX_FRAMES", 22)) / fpsx + 0.01, 2)
+    rm_names = list((m.get("refmods") or {}).get("names") or []) if m.get("prompt") else []
     return (path, gr.update(value=path), "\n\n".join(lines),
-            gr.update(minimum=mn, maximum=max(mn, dur), value=dur), "")
+            gr.update(minimum=mn, maximum=max(mn, dur), value=dur), "", _refmod_html(rm_names))
 
 
 def wire(ctx, comps):
@@ -963,7 +1052,7 @@ def wire(ctx, comps):
         return
     T = _T
     main_tabs = comps.get("main_tabs")
-    load_out = [_UI["src"], _UI["src_video"], _UI["detail"], _UI["t"], _UI["msg"]]
+    load_out = [_UI["src"], _UI["src_video"], _UI["detail"], _UI["t"], _UI["msg"], _UI["rm"]]
     sel = comps.get("lib_sel_path")
     if "lib_btn" in _UI and sel is not None:
         ev = _UI["lib_btn"].click(fn=_load_source, inputs=[sel], outputs=load_out, queue=False, show_progress="hidden")
@@ -987,7 +1076,7 @@ def wire(ctx, comps):
     def _idle():
         return gr.update(value=T("🎬 RETAKE"), interactive=True)
 
-    def _run(src, t, extend, action, add, seed, inherit, *extra):
+    def _run(src, t, extend, action, add, seed, inherit, turbo, steps_ui, *extra):
         if not src or not os.path.isfile(str(src)):
             yield T("LIBRARY で動画を選んで「↪ RETAKE へ送る」か、SOURCE に動画を入れてください。"), gr.update()
             return
@@ -1004,22 +1093,28 @@ def wire(ctx, comps):
             sd = int(m.get("seed", 0) or 0) + 1 if m.get("seed") is not None else int.from_bytes(os.urandom(4), "little")
         mode = extra[0] if (len(extra) > 0 and not inherit) else None
         steps = int(extra[1]) if (len(extra) > 1 and not inherit and extra[1]) else None
+        if steps_ui and int(steps_ui) > 0:                        # 0.5.0 RETAKE で選んだ Steps が勝つ
+            steps = int(steps_ui)
         if busy is not None:
             busy.set()
         last, res = "", None
         try:
             for st, r in retake(str(src), float(t or 0), float(add or 5), str(action), sd, mode=mode, steps=steps,
-                                use_audio=True, extend=bool(extend), inherit=bool(inherit)):
+                                use_audio=True, extend=bool(extend), inherit=bool(inherit), turbo=(turbo or None)):
                 last = st or last
                 if r is not None:
                     res = r
-                yield str(last).replace("\n", "  \n"), gr.update()
+                yield str(last), gr.update()
         finally:
             if busy is not None:
                 busy.clear()
-        yield str(last).replace("\n", "  \n"), (gr.update(value=res["joined"]) if res else gr.update())
+        yield str(last), (gr.update(value=res["joined"]) if res else gr.update())
 
-    run_in = [_UI["src"], _UI["t"], _UI["extend"], _UI["action"], _UI["add"], _UI["seed"], _UI["inherit"]] + extra_in
+    run_in = [_UI["src"], _UI["t"], _UI["extend"], _UI["action"], _UI["add"], _UI["seed"], _UI["inherit"],
+              _UI["turbo"], _UI["steps"]] + extra_in
+    # Turbo を選んだら Steps にその既定を入れる（「元と同じ」なら 0＝自動）。CREATE の Turbo と同じ動き
+    _UI["turbo"].change(fn=lambda k: gr.update(value=int(_steps_for(k, None) or 0) if k else 0), inputs=[_UI["turbo"]],
+                        outputs=[_UI["steps"]], queue=False, show_progress="hidden")
     _UI["run"].click(fn=_busy, outputs=[_UI["run"]], queue=False, show_progress="hidden").then(
         fn=_run, inputs=run_in, outputs=[_UI["msg"], _UI["out"]], show_progress="hidden",
         concurrency_id="generate", concurrency_limit=1).then(
