@@ -20,6 +20,7 @@ on their own.
 | `modules/spark_attn.py` | WebUI ver1.7 | Speed-up "Spark (quality first)" / "Fast Spark (balanced)": fetches Spark-H3 (zechengtang/Spark-H3, Apache-2.0) at a pinned commit at first use and runs the generation with its block-sparse attention; keeps the Triton kernel cache on Google Drive (only when Drive is connected). The selector stays in the core |
 | `modules/character_guide.py` | WebUI ver1.7 | Character Guide for long videos (Motion Context): picks a good face frame from segment 1 and uses it as the R2V reference for later segments (T2V only), matches the brightness of the frames handed to the next segment (multiplicative, colors untouched), and softens over-sharp detail inside the last DiT blocks (Detail & Contrast, idea from Fizgig H3 Tweaks / MIT, own code). Face detection: OpenCV Zoo YuNet (Apache-2.0). The switch and the SYSTEM card are built through slots |
 | `modules/ref_filters.py` | WebUI ver1.7 | LIBRARY: convert the selected video / still for use as a reference in other generators and download it (pick in a dropdown, then Run) — Blocking (3-tone grey), Blocking (person only, background removed with torchvision DeepLabV3), line art (XDoG), depth map (Video Depth Anything Small, Apache-2.0, fetched at a pinned commit/revision) |
+| `modules/media_context.py` | WebUI ver1.7 | Media Context / Retake (engine only in 0.1.0): re-make an existing video from any time t, or extend it from its end — the 22 frames before t (and the matching audio, encoded with the audio VAE) become the context of the new clip, which is joined after [0, t) |
 
 ## Translations (`i18n/`)
 
@@ -64,7 +65,7 @@ Each module is a Python file under `modules/` that exposes:
 Hooks: `prompt_pre(text, refs) -> (text, warnings)` · `refmod_after_save(name, items, paths, source) -> str` ·
 `refmod_detail_rows(name, meta) -> [(label, value)]`.
 Slots: `refmod_save_opts` · `rmb_opts` · `refmod_bar2` · `rmm_right`.
-Provided functions: `face_refine_apply` · `face_refine_still_img` · `do_video_refine` (face_refiner) · `spark_ctx` · `accel_sync` · `accel_first_note` (spark_attn) · `long_guide_session` (character_guide) · `ref_filter_convert` (ref_filters).
+Provided functions: `face_refine_apply` · `face_refine_still_img` · `do_video_refine` (face_refiner) · `spark_ctx` · `accel_sync` · `accel_first_note` (spark_attn) · `long_guide_session` (character_guide) · `ref_filter_convert` (ref_filters) · `media_context_retake` · `media_context_audio` (media_context).
 
 Modules must not copy code from the core.
 
@@ -96,4 +97,5 @@ MiniMax H3 WebUI（note版）の**拡張モジュール**置き場です。WebUI
 | `modules/spark_attn.py` | 高速化「Spark（画質優先）」「Fast Spark（バランス）」（初めて使うときに Spark-H3〔zechengtang/Spark-H3、Apache-2.0〕を版固定で取り寄せ、その疎 attention で生成する／Triton の組み立て結果を Google ドライブに控える〔Drive 連携時のみ〕。プルダウンは本体） |
 | `modules/character_guide.py` | 長尺（Motion Context）の Character Guide（T2V では 1 本目から顔のよいコマを選び 2 本目以降の R2V の参照に／次へ渡すコマの明るさを掛け算で 1 本目に合わせる〔色は触らない〕／最後の DiT ブロックで細部の尖りを抑える Detail & Contrast〔Fizgig H3 Tweaks・MIT の考え方、自作〕。顔検出は OpenCV Zoo の YuNet〔Apache-2.0〕。スイッチと SYSTEM の箱は slot で作る） |
 | `modules/ref_filters.py` | LIBRARY で選んだ動画・静止画を、ほかの生成 AI の参照向けに加工してそのままダウンロード（プルダウンで選んで実行。Blocking＝灰 3 階調／Blocking（人物）＝背景を除く〔torchvision DeepLabV3〕／線画〔XDoG〕／深度マップ〔Video Depth Anything Small・Apache-2.0、版固定で取り寄せ〕） |
+| `modules/media_context.py` | Media Context ／ Retake（0.1.0 はエンジンだけ）: 既存の動画の任意の時刻 t から撮り直す・終わりから延長する。t の直前 22 コマ（と同じ区間の音声を音声 VAE でエンコードしたもの）を新しいクリップの文脈にし、[0, t) の後ろにつなぐ |
 - モデルの重みは置きません。非公式のコミュニティ製で、MiniMax とは関係ありません。
