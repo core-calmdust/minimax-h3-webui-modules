@@ -23,3 +23,9 @@ Copyright (2025) Bytedance Ltd. and/or its affiliates, Apache License 2.0) at a 
 Small checkpoint (https://huggingface.co/depth-anything/Video-Depth-Anything-Small, Apache License 2.0) at a pinned
 revision; neither is copied into this repository. The Base/Large checkpoints (CC-BY-NC-4.0) are not used.
 It also uses torchvision's DeepLabV3 (MobileNetV3-Large) segmentation weights (BSD-3-Clause), downloaded by torchvision.
+
+assets/camera3d/human_f.glb and human_m.glb are modified copies (textures removed, one flat gray material) of
+"Universal Base Characters [Standard]" by Quaternius (https://quaternius.com), CC0 1.0 Universal; see
+assets/camera3d/README.md and License_Quaternius_Standard.txt.
+modules/camera3d.py loads three.js (https://github.com/mrdoob/three.js, MIT License, Copyright © 2010-2024
+three.js authors) in the browser from cdn.jsdelivr.net at a pinned version; it is not copied into this repository.
