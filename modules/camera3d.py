@@ -14,6 +14,12 @@
        キーフレーム（触ると今の時刻に自動で打つ。なめらか／止まりながら／直線）・再生・ガイドの書き出し
        （ブラウザで 24fps・17n+5 コマを描き、server_functions で 12 コマずつ送って ffmpeg で mp4。シーンの JSON も横に置く）。
        R2V への受け渡し（<Video 1>・人ごとの RefMod → <Subject N>・時刻ごとの挙動の文）は Phase 2。
+0.2.0（Phase 2）: セル198〜201 の結果で、ガイドは「動画参照のまま短辺 256 で読む」（生成の間だけ canvas_short_edge=256）。
+       768p より速く（177→61 秒）ガイドに忠実（人の IoU 0.40→0.57）。192 以下は崩れ始める（128 で 0.33）。物（箱）は言葉の位置で足りる。
+       CAMERA 3D タブに「🎬 生成」: ガイドを書き出して R2V へ <Video 1>（weak_reference）として渡す。人ごとに RefMod を割り当て
+       （人の番号の順）→ <Subject N>（説明は refmod_tools の @character N。説明が無ければラベルだけ）、場所と時刻つきの動き・セリフから
+       6 節のプロンプトを組む（人の立ち位置は書き出しの最初・最後のコマで画面の左・中央・右を測って書く）。Turbo・Steps は CREATE の今の設定。
+       結果は LIBRARY（/content）にメタつきで残る。生成は本体の生成と直列（concurrency_id="generate"）。
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -27,7 +33,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -38,7 +44,8 @@ ASSETS = {                               # 種類 → (リポジトリ内のパ�
 }
 OUT_DIR = "/content/camera3d"            # ガイドの mp4 と JSON の置き場
 FPS = 24
-GUIDE_SHORT = 480                        # ガイドの短辺（R2V の動画参照は本体が縮めて使う。セル197 は 480 前後で付いてきた）
+GUIDE_SHORT = 480                        # ガイドの書き出しの短辺（見るため。生成では下の GUIDE_READ_EDGE で読む）
+GUIDE_READ_EDGE = 256                    # 0.2.0 生成でガイドを読む短辺（セル200・201: 256 が最も忠実で速い。192 以下は崩れ始める）
 MAX_SEC = 15.0
 MAX_FRAMES = 17 * 21 + 5                 # 362 コマ（約 15 秒）
 
@@ -100,6 +107,38 @@ I18N = {
     "人体を読み込めませんでした": {"en": "Could not load the mannequin", "zh": "无法加载人体模型", "ko": "인체 모델을 불러올 수 없었습니다"},
     "書き出し中 {v0} / {v1} コマ": {"en": "Exporting {v0} / {v1} frames", "zh": "导出中 {v0} / {v1} 帧", "ko": "내보내는 중 {v0} / {v1} 프레임"},
     "再生": {"en": "Play", "zh": "播放", "ko": "재생"},
+    # ---- 0.2.0 生成 ----
+    "人物の RefMod（人の番号の順）": {"en": "People's RefMods (in person order)", "zh": "人物的 RefMod（按人物编号顺序）", "ko": "인물의 RefMod(인물 번호 순서)"},
+    "場所・背景": {"en": "Place / background", "zh": "地点・背景", "ko": "장소・배경"},
+    "動き・セリフ（時刻つき）": {"en": "Actions / lines (with times)", "zh": "动作・台词（带时间）", "ko": "움직임・대사(시간 포함)"},
+    "Seed（−1 でランダム）": {"en": "Seed (−1 = random)", "zh": "Seed（−1 为随机）", "ko": "Seed(−1 은 랜덤)"},
+    "🎬 生成": {"en": "🎬 Generate", "zh": "🎬 生成", "ko": "🎬 생성"},
+    "例: a cozy bookstore cafe in the afternoon, wooden bookshelves along the left wall": {
+        "en": "e.g. a cozy bookstore cafe in the afternoon, wooden bookshelves along the left wall",
+        "zh": "例：a cozy bookstore cafe in the afternoon, wooden bookshelves along the left wall",
+        "ko": "예: a cozy bookstore cafe in the afternoon, wooden bookshelves along the left wall"},
+    "例: 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.": {
+        "en": "e.g. 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.",
+        "zh": "例：0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.",
+        "ko": "예: 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs."},
+    "⚠️ RefMod が無い人は言葉だけで描きます（{v0} 人中 {v1} 人に RefMod）": {
+        "en": "⚠️ People without a RefMod are drawn from words only ({v1} of {v0} have a RefMod)",
+        "zh": "⚠️ 没有 RefMod 的人物只按文字绘制（{v0} 人中 {v1} 人有 RefMod）",
+        "ko": "⚠️ RefMod 가 없는 인물은 글로만 그립니다({v0} 명 중 {v1} 명에 RefMod)"},
+    "ℹ️ 人 {v0}（{v1}）は見た目の説明が無いのでラベルだけで指します（FINDER で説明を付けると似やすくなります）": {
+        "en": "ℹ️ Person {v0} ({v1}) has no appearance description, so only the label is used (adding one in FINDER helps the likeness)",
+        "zh": "ℹ️ 人物 {v0}（{v1}）没有外貌描述，只用标签指代（在 FINDER 中添加描述会更像）",
+        "ko": "ℹ️ 인물 {v0}({v1})은 외모 설명이 없어 라벨만으로 가리킵니다(FINDER 에서 설명을 붙이면 더 닮습니다)"},
+    "⚠️ ラベルを展開できませんでした: {v0}": {"en": "⚠️ Could not expand the labels: {v0}", "zh": "⚠️ 无法展开标签：{v0}", "ko": "⚠️ 라벨을 펼칠 수 없었습니다: {v0}"},
+    "🎬 R2V: {v0}×{v1}・{v2} コマ・seed {v3}・{v4}・Steps {v5}・ガイドは短辺 {v6} で読みます": {
+        "en": "🎬 R2V: {v0}×{v1}, {v2} frames, seed {v3}, {v4}, Steps {v5}, guide read at short side {v6}",
+        "zh": "🎬 R2V：{v0}×{v1}・{v2} 帧・seed {v3}・{v4}・Steps {v5}・引导以短边 {v6} 读取",
+        "ko": "🎬 R2V: {v0}×{v1}・{v2} 프레임・seed {v3}・{v4}・Steps {v5}・가이드는 짧은 변 {v6} 으로 읽습니다"},
+    "Turbo なし": {"en": "no Turbo", "zh": "无 Turbo", "ko": "Turbo 없음"},
+    "⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s": {"en": "⏳ Generating  {v0}/{v1} steps  ⏱ {v2}s", "zh": "⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s",
+                                         "ko": "⏳ 생성 중  {v0}/{v1} steps  ⏱ {v2}s"},
+    "❌ 生成に失敗しました: {v0}": {"en": "❌ Generation failed: {v0}", "zh": "❌ 生成失败：{v0}", "ko": "❌ 생성에 실패했습니다: {v0}"},
+    "✅ 生成しました（{v0} 秒）: {v1}": {"en": "✅ Generated ({v0} s): {v1}", "zh": "✅ 已生成（{v0} 秒）：{v1}", "ko": "✅ 생성했습니다({v0} 초): {v1}"},
     "停止": {"en": "Stop", "zh": "停止", "ko": "정지"},
 }
 
@@ -252,6 +291,211 @@ def _on_bridge(s):
             gr.update(value=d["ease"]) if d.get("ease") in EASE_KEYS else keep,
             gr.update(value=d["pose"]) if d.get("pose") in POSE_KEYS else keep,
             num("lens", 10, 200))
+
+
+
+# ------------------------------------------------------------------
+#  0.2.0 生成（ガイド → R2V の <Video 1>）
+# ------------------------------------------------------------------
+def _where(x):
+    """画面の横位置（−1〜1）→ 言葉"""
+    return "on the left" if x < -0.12 else ("on the right" if x > 0.12 else "in the center")   # 二人が ±0.26 前後に立つ構図でも左右を言える幅
+
+
+def _tone_word(v):
+    return "very light grey" if v >= 0.8 else ("light grey" if v >= 0.62 else ("mid-grey" if v >= 0.5 else "dark grey"))
+
+
+def _desc_of(name):
+    """RefMod の見た目の説明があるか（refmod_tools の desc_get）"""
+    try:
+        rt = (_g().get("_MODS") or {}).get("refmod_tools")
+        d = rt.desc_get(name) if rt is not None else {}
+        return bool(str(d.get("appearance") or "").strip() or str(d.get("outfit") or "").strip())
+    except Exception:                                             # noqa: BLE001
+        return False
+
+
+def compose_prompt(scene, rms, place, action):
+    """シーン（書き出しの JSON）・人ごとの RefMod・場所・動きの文 → 6 節の R2V プロンプト（<RefMod N>・@character N は本体が展開）。
+    動きの文が節の見出し（subject_definitions:）を持っていれば、利用者が書いた全文としてそのまま使う"""
+    act = str(action or "").strip()
+    if re.search(r"^\s*subject_definitions\s*:", act, re.M):
+        return act
+    people = list(scene.get("people") or [])
+    scr = scene.get("screen") or {}
+    grays = list(scene.get("grays") or [])
+    place = str(place or "").strip() or "a natural, realistic location"
+    defs, who, keep, pos = [], [], [], []
+    for i, p in enumerate(people):
+        n = i + 1
+        rm = rms[i] if i < len(rms) else None
+        if rm:
+            defs.append(f"<Subject {n}> is the person in <RefMod {n}>" + (f": @character {n}." if _desc_of(rm) else "."))
+        else:
+            defs.append(f"<Subject {n}> is a {'man' if p.get('kind') == 'm' else 'woman'} with a natural, realistic look.")
+        sc = scr.get(p.get("id")) or []
+        w0 = _where(sc[0][0]) if sc else "in the frame"
+        w1 = _where(sc[-1][0]) if len(sc) > 1 else w0
+        tone = _tone_word(grays[i]) if i < len(grays) else "grey"
+        who.append(f"<Subject {n}> is the {tone} mannequin {w0}")
+        pos.append(f"<Subject {n}> stands {w0}" + (f" and ends {w1}" if w1 != w0 else ""))
+        keep.append(f"<Subject {n}> (appears in [Shot 1]): partially_preserved - face and hair are kept; the pose and place "
+                    f"follow the guide and the description.")
+    guide = ("The camera movement, the framing and where each person stands and faces come from <Video 1>, a simple grey mannequin "
+             "guide: each grey mannequin stands for one person. " + ("; ".join(who) + ". " if who else "")
+             + "The guide's grey look is not shown; the people and the place look real. Faces stay the same people throughout.")
+    sound = ("The voices of the people and the natural ambience of the place." if re.search(r"<d>|says|said|speaks|talks", act, re.I)
+             else "The natural ambience of the place.")
+    parts = [
+        "subject_definitions:\n" + ("\n".join(defs) if defs else "N/A"),
+        f"summary:\n[reference generation] One continuous shot in {place}. {guide}",
+        "retention_analysis:\n<Video 1> (appears in [Shot 1]): weak_reference - only the camera motion, the framing and the positions, "
+        "sizes and facing of the mannequins are used; the mannequins are replaced by the real people.\n" + "\n".join(keep),
+        "detailed_description:\nRealistic photography with soft natural light. [Shot 1] " + place[0].upper() + place[1:] + ". "
+        + (". ".join(pos) + ". " if pos else "") + (act + " " if act else "")
+        + "The camera follows exactly the movement of <Video 1>: its position, distance and direction change exactly as the guide does.",
+        f"overall_soundscape:\n{sound}",
+        "non_diegetic_music:\nN/A",
+    ]
+    return "\n\n".join(parts)
+
+
+def _canvas(edge):
+    """動画参照を読む大きさ（canvas_short_edge・canvas_max_pixels）を生成の間だけ変える（生成の大きさは width/height で決まる）"""
+    import contextlib
+
+    @contextlib.contextmanager
+    def cm():
+        pipe = _g()["pipe"]
+        b0 = (int(getattr(pipe.config, "canvas_short_edge", 768)), int(getattr(pipe.config, "canvas_max_pixels", 768 * 1344)))
+        try:
+            pipe.register_to_config(canvas_short_edge=int(edge), canvas_max_pixels=int(edge * edge * 1344 / 768) + 1)
+            yield
+        finally:
+            pipe.register_to_config(canvas_short_edge=b0[0], canvas_max_pixels=b0[1])
+    return cm()
+
+
+def c3d_generate(gpath, rms, place, action, seed):
+    """書き出したガイドで R2V を回す（ジェネレータ: (STATUS, 結果の動画)）"""
+    import time
+    import numpy as np
+    from PIL import Image
+    g = _g()
+    gp = str(gpath or "")
+    if not gp:
+        yield _T("編集画面がまだ読み込まれていません（CAMERA 3D タブを開いてから押してください）"), None
+        return
+    if gp.startswith("ERR:") or not os.path.isfile(gp):
+        yield _T("⚠️ 書き出せませんでした: {v0}", v0=gp[4:].strip() if gp.startswith("ERR:") else gp), None
+        return
+    try:
+        with open(gp[:-4] + ".json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception as e:                                        # noqa: BLE001
+        yield _T("⚠️ 書き出せませんでした: {v0}", v0=f"{e}"), None
+        return
+    scene = meta.get("scene") or {}
+    rms = [str(x) for x in (rms or []) if str(x).strip()]
+    nf = int(meta.get("frames") or 0)
+    lines = [_T("書き出しました: {v0}（{v1}×{v2}・{v3} コマ・{v4} 秒）", v0=os.path.basename(gp), v1=meta.get("w"), v2=meta.get("h"),
+                v3=nf, v4=f"{nf / float(FPS):.2f}")]
+    try:
+        from diffusers.modular_pipelines.minimax_h3.modular_pipeline import resolve_canvas_size
+        h, w = resolve_canvas_size(int(meta["w"]), int(meta["h"]), 32, 768, 768 * 1344)
+    except Exception:                                             # noqa: BLE001
+        w, h = (1344, 768) if int(meta.get("w", 16)) >= int(meta.get("h", 9)) else (768, 1344)
+    n_people = len(scene.get("people") or [])
+    if len(rms) < n_people:
+        lines.append(_T("⚠️ RefMod が無い人は言葉だけで描きます（{v0} 人中 {v1} 人に RefMod）", v0=n_people, v1=len(rms)))
+    for i, nm in enumerate(rms[:n_people]):
+        if not _desc_of(nm):
+            lines.append(_T("ℹ️ 人 {v0}（{v1}）は見た目の説明が無いのでラベルだけで指します（FINDER で説明を付けると似やすくなります）", v0=i + 1, v1=nm))
+    rm = g["_REFMOD"]
+    rm0 = {k: (list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) else v))
+           for k, v in rm.items() if k in ("sel", "strength", "each", "cap")}
+    rvf0 = g["_UI_STATE"].get("ref_video_frames")
+    sd = int(seed) if seed is not None and int(seed) >= 0 else int(np.random.randint(0, 2 ** 31 - 1))
+    refs = {"image": [], "video": [gp], "audio": []}
+    box = {}
+    try:
+        ok, msg = g["ensure_mode"]("Ref2VA")
+        if not ok:
+            yield "\n".join(lines + ["❌ " + str(msg)]), None
+            return
+        rm.update(sel=list(rms[:max(1, n_people)]), strength=1.0, each={}, cap=0)
+        g["_UI_STATE"]["ref_video_frames"] = 0
+        prompt = compose_prompt(scene, rms, place, action)
+        try:
+            prompt, notes = g["expand_prompt_labels"](prompt, refs)
+            lines += list(notes or [])
+        except Exception as e:                                    # noqa: BLE001
+            lines.append(_T("⚠️ ラベルを展開できませんでした: {v0}", v0=f"{e}"))
+        key = g["turbo_key"]()
+        try:
+            steps = int(g["steps_for_lora"](key, False, "Ref2VA") or 0) or 4
+        except Exception:                                         # noqa: BLE001
+            steps = 4
+        lines.append(_T("🎬 R2V: {v0}×{v1}・{v2} コマ・seed {v3}・{v4}・Steps {v5}・ガイドは短辺 {v6} で読みます",
+                        v0=w, v1=h, v2=nf, v3=sd, v4=key or _T("Turbo なし"), v5=steps, v6=GUIDE_READ_EDGE))
+        prog = {"n": 0, "total": steps, "phase": "denoise"}
+
+        def _worker():
+            try:
+                with _canvas(GUIDE_READ_EDGE):
+                    box["res"] = g["_run_pipe"]("Ref2VA", prompt, w, h, nf, steps, sd, None, None, refs, prog)
+            except BaseException as e:                            # noqa: BLE001
+                box["err"] = e
+        th = threading.Thread(target=_worker, daemon=True)
+        t0 = time.time()
+        th.start()
+        while th.is_alive():
+            yield "\n".join(lines + [_T("⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s", v0=prog.get("n", 0), v1=prog.get("total", steps),
+                                        v2=f"{time.time() - t0:.0f}")]), None
+            time.sleep(0.5)
+        th.join()
+    finally:
+        g["_UI_STATE"]["ref_video_frames"] = rvf0
+        try:
+            rm.update(rm0)
+        except Exception:                                         # noqa: BLE001
+            pass
+    if "err" in box:
+        try:
+            g["_free_vram"]()
+        except Exception:                                         # noqa: BLE001
+            pass
+        e = box["err"]
+        yield "\n".join(lines + [_T("❌ 生成に失敗しました: {v0}", v0=f"{type(e).__name__}: {e}")]), None
+        return
+    r = box["res"]
+    frames = [f.convert("RGB") if isinstance(f, Image.Image) else Image.fromarray(np.asarray(f)) for f in r["frames"]]
+    stamp = datetime.datetime.now().strftime("%H%M%S")
+    out = os.path.join("/content", f"minimax_h3_c3d_{stamp}_{sd}.mp4")
+    g["export_to_video"](frames, out, fps=FPS)
+    if r.get("audio") is not None:
+        try:
+            g["_mux_audio"](out, g["_audio_array"](r["audio"]), int(r.get("sr") or 32000))
+        except Exception as e:                                    # noqa: BLE001
+            lines.append(f"⚠️ audio: {e}")
+    try:
+        m = g["build_meta"]("Ref2VA", prompt, w, h, "", nf / float(FPS), nf, steps, sd, key,
+                            float(g["_LORA_STATE"].get("strength", 1.0)), refs, float(r.get("sec", 0.0)), float(r.get("peak", 0.0)))
+        m["camera3d"] = {"guide": gp, "read_edge": GUIDE_READ_EDGE, "module": f"{NAME} {VERSION}"}
+        m["refmods"] = {"names": rms[:max(1, n_people)], "strength": 1.0, "each": {n: 1.0 for n in rms[:max(1, n_people)]}, "cap": 0}
+        g["write_meta"](out, m)
+    except Exception as e:                                        # noqa: BLE001
+        lines.append(f"⚠️ meta: {e}")
+    lines.append(_T("✅ 生成しました（{v0} 秒）: {v1}", v0=f"{float(r.get('sec', 0.0)):.0f}", v1=os.path.basename(out)))
+    yield "\n".join(lines), out
+
+
+def _refmod_choices():
+    try:
+        return list(_g()["refmod_choices"]())
+    except Exception:                                             # noqa: BLE001
+        return []
 
 
 POSE_KEYS = ("stand", "walk", "sit", "raise", "point")
@@ -773,7 +1017,20 @@ const api = {
     let W, H;
     if (a[0] >= a[1]) { H = G; W = Math.round(G * a[0] / a[1] / 2) * 2; } else { W = G; H = Math.round(G * a[1] / a[0] / 2) * 2; }
     const n = Math.max(22, Math.min(__MAX_FRAMES__, Math.round((S.dur * FPS - 5) / 17) * 17 + 5));
-    const job = await server.c3d_begin({ w: W, h: H, n, scene: serialize() });
+    // 0.2.0 人の頭が画面のどこにあるか（最初と最後のコマ）。プロンプトの「左の人」などに使う
+    const keepAspect0 = shotAspect; shotAspect = W / H;
+    const screen = {};
+    for (const tt of [0, S.dur]) {
+      applyTime(tt);
+      S.people.forEach((p) => {
+        const rt = RT.get(p.id); if (!rt) return;
+        const v = new THREE.Vector3(); (rt.bones.Head || rt.wrap).getWorldPosition(v); v.project(shot);
+        (screen[p.id] = screen[p.id] || []).push([+v.x.toFixed(3), +v.y.toFixed(3), v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1]);
+      });
+    }
+    shotAspect = keepAspect0;
+    const sc0 = serialize(); sc0.screen = screen; sc0.grays = S.people.map((p, i) => grayOf(i));
+    const job = await server.c3d_begin({ w: W, h: H, n, scene: sc0 });
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const r2 = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: true });
     r2.setPixelRatio(1); r2.setSize(W, H, false);
@@ -830,6 +1087,17 @@ async (x) => {
 """
 
 
+# 0.2.0 生成ボタン: 先にガイドを書き出し、そのパスと入力を Python へ
+GEN_JS = """
+async (x, rms, place, action, seed) => {
+  try {
+    if (!window.__c3d) return ['', rms, place, action, seed];
+    return [await window.__c3d.exportGuide(), rms, place, action, seed];
+  } catch (e) { return ['ERR: ' + (e && e.message ? e.message : e), rms, place, action, seed]; }
+}
+"""
+
+
 def _call_js(expr):
     return "(...a) => { try { if (window.__c3d) { " + expr + " } } catch (e) { console.error(e); } return a.length > 1 ? a : a[0]; }"
 
@@ -839,9 +1107,9 @@ def _call_js(expr):
 # ------------------------------------------------------------------
 _MIRROR = {                                                       # SEGMENTS の id → CAMERA 3D の id
     "#seg-left": ["#c3d-left"], "#seg-right": ["#c3d-right"],
-    "#seg-preview-box": ["#c3d-view-box", "#c3d-out-box"],
-    "#seg-act": ["#c3d-scene", "#c3d-obj"],
-    "#seg-concat-btn": ["#c3d-add-f", "#c3d-add-m", "#c3d-del", "#c3d-key", "#c3d-unkey", "#c3d-export"],
+    "#seg-preview-box": ["#c3d-view-box", "#c3d-out-box", "#c3d-res-box"],
+    "#seg-act": ["#c3d-scene", "#c3d-obj", "#c3d-gen"],
+    "#seg-concat-btn": ["#c3d-add-f", "#c3d-add-m", "#c3d-del", "#c3d-key", "#c3d-unkey", "#c3d-export", "#c3d-run-btn"],
     "#seg-len": ["#c3d-dur", "#c3d-lens"],
     "#status-panel": ["#c3d-status"], "#lora-dd": ["#c3d-aspect", "#c3d-ease", "#c3d-pose", "#c3d-mode"],
     "#seg-note": ["#c3d-note"],
@@ -851,7 +1119,14 @@ CSS_EXTRA = """
 #c3d-bridge, #c3d-res { display: none !important; }
 #c3d-left { justify-content: flex-start !important; }
 #c3d-left > * { flex: 0 0 auto !important; }
-#c3d-scene > *, #c3d-obj > * { margin-top: 0 !important; }
+#c3d-scene > *, #c3d-obj > *, #c3d-gen > * { margin-top: 0 !important; }
+/* 0.2.0 文字の欄（場所・動き・Seed・RefMod）の見出しは（左の生成の箱は、見えている枠〔中の .form〕が編集画面の枠と左右の端でそろうように 12px）、同じ箱の部品（スライダー＝SEGMENT の写し）と同じ書式（RETAKE の #rt-action と同じ値） */
+#c3d-place label, #c3d-place label > span:first-child, #c3d-action label, #c3d-action label > span:first-child,
+#c3d-seed label, #c3d-seed label > span:first-child, #c3d-rms [data-testid="block-info"] {
+    font-size: 12px !important; color: var(--h3-muted) !important; letter-spacing: 0.04em !important; font-weight: 400 !important;
+}
+#c3d-place textarea, #c3d-place input, #c3d-action textarea, #c3d-seed input { color: var(--h3-text3) !important; font-size: 13px !important; letter-spacing: 0 !important; }
+#c3d-gen { margin-left: 12px !important; margin-right: 12px !important; width: calc(100% - 24px) !important; min-width: 0 !important; flex-grow: 0 !important; }
 #c3d-status { margin-left: 12px !important; margin-right: 12px !important; width: calc(100% - 24px) !important; min-width: 0 !important; flex-grow: 0 !important; }
 #c3d-btns, #c3d-keys { gap: 8px !important; flex-wrap: nowrap !important; }
 #c3d-btns > *, #c3d-keys > * { min-width: 0 !important; }
@@ -902,7 +1177,11 @@ HELP_C3D = ("3D の場に人（マネキン）とカメラを置き、時刻ご�
             "「カメラ」の表示ではドラッグで回り込み・右ドラッグで平行移動・ホイールで寄り引きします。"
             "時刻を動かしてから人やカメラを動かすと、その時刻にキーが入ります（キーが 1 つも無いものは止まったまま）。\n"
             "動き（演技）はここでは付けず、生成のプロンプトに書きます。ガイドは 24fps・17n＋5 コマ・短辺 480 で /content/camera3d/ に書き出します"
-            "（シーンの JSON も同じ名前で横に置きます）")
+            "（シーンの JSON も同じ名前で横に置きます）。\n"
+            "「🎬 生成」はガイドを書き出して R2V に <Video 1> として渡します（短辺 256 で読むので速く、ガイドに忠実）。"
+            "人物の RefMod は人の番号の順に選びます（1 人目→<Subject 1>）。見た目の説明がある RefMod は説明も入ります。"
+            "場所と、時刻つきの動き・セリフを書けば、人の立ち位置（画面の左・中央・右）を足して 6 節のプロンプトを組みます。"
+            "動きの欄に subject_definitions: から始まる全文を書けば、そのまま使います。Turbo・Steps は CREATE の今の設定です")
 
 I18N.update({
     HELP_C3D: {
@@ -913,19 +1192,19 @@ I18N.update({
               "(Gizmo = Rotate turns them); in the “Camera” view drag to orbit, right-drag to pan and use the wheel to dolly. "
               "Move the playhead first, then move a person or the camera to set a key at that time (anything with no keys stays still).\n"
               "Acting is not animated here — write it in the generation prompt. Guides are exported at 24 fps, 17n+5 frames, short side 480, "
-              "to /content/camera3d/ (with the scene JSON next to them).",
+              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings.",
         "zh": "在 3D 场景中放置人物（人体模型）和摄像机，用关键帧决定每个时刻的站位、朝向和摄像机位置，并导出灰色的引导视频。"
               "把引导视频作为 R2V 的视频参考，人物的位置、姿势、构图和摄像机运动会跟随引导（单元 196・197）。\n"
               "用「＋ 女性」「＋ 男性」添加人物，在画面中点击选择。在「全景」视图中拖动箭头移动（操作＝旋转可改变朝向），"
               "在「摄像机」视图中拖动环绕、右键拖动平移、滚轮推拉。先移动时间，再移动人物或摄像机，就会在该时刻设置关键帧（没有关键帧的对象保持不动）。\n"
-              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。",
+              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。",
         "ko": "3D 공간에 인물(마네킹)과 카메라를 놓고, 시간마다 서는 위치·방향·카메라 위치를 키프레임으로 정해 회색 가이드 영상을 내보냅니다. "
               "가이드를 R2V 의 영상 참조로 쓰면 인물의 위치·자세·구도·카메라 움직임이 가이드를 따라옵니다(셀 196・197).\n"
               "「＋ 여성」「＋ 남성」으로 인물을 추가하고 화면에서 눌러 선택합니다. 「전체」 보기에서는 화살표로 움직이고(조작＝회전으로 방향 변경), "
               "「카메라」 보기에서는 드래그로 돌아가기·오른쪽 드래그로 평행 이동·휠로 다가가기/물러나기를 합니다. "
               "시간을 먼저 옮긴 뒤 인물이나 카메라를 움직이면 그 시간에 키가 들어갑니다(키가 하나도 없는 것은 멈춘 채로).\n"
               "움직임(연기)은 여기서 만들지 않고 생성 프롬프트에 씁니다. 가이드는 24fps・17n+5 프레임・짧은 변 480 으로 /content/camera3d/ 에 내보냅니다"
-              "(같은 이름의 장면 JSON 도 옆에 둡니다)."},
+              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다."},
 })
 
 
@@ -986,6 +1265,14 @@ def build_slot(ctx, slot):
                     _UI["editor"] = gr.HTML(value="", html_template=HTML_TEMPLATE, js_on_load=_js(), elem_id="c3d-editor",
                                             apply_default_css=False,
                                             server_functions=[c3d_mesh, c3d_texts, c3d_begin, c3d_put, c3d_finish])
+                with gr.Column(elem_classes=["panel"], elem_id="c3d-gen"):
+                    _UI["rms"] = gr.Dropdown(choices=_refmod_choices(), value=[], multiselect=True, label="人物の RefMod（人の番号の順）",
+                                             elem_id="c3d-rms", container=True)
+                    _UI["place"] = gr.Textbox(label="場所・背景", lines=1, elem_id="c3d-place",
+                                              placeholder="例: a cozy bookstore cafe in the afternoon, wooden bookshelves along the left wall")
+                    _UI["action"] = gr.Textbox(label="動き・セリフ（時刻つき）", lines=4, elem_id="c3d-action",
+                                               placeholder="例: 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.")
+                    _UI["seed"] = gr.Number(value=-1, precision=0, label="Seed（−1 でランダム）", elem_id="c3d-seed")
                 gr.Markdown("人は「＋ 女性」「＋ 男性」で足し、画面で押して選びます。時刻を動かしてから人やカメラを動かすと、その時刻にキーが入ります"
                             "（「カメラ」の表示では、ドラッグで回り込み・右ドラッグで平行移動・ホイールで寄り引き）。動き（演技）はここでは付けず、生成のプロンプトに書きます。",
                             elem_id="c3d-note")
@@ -1013,6 +1300,10 @@ def build_slot(ctx, slot):
                 with gr.Column(elem_classes=["panel"], elem_id="c3d-status"):
                     _UI["msg"] = gr.Textbox(label="STATUS", lines=4, max_lines=int(g.get("STATUS_MAX_LINES", 200)),
                                             interactive=False, value="")
+                with gr.Column(elem_classes=["panel"], elem_id="c3d-res-box"):
+                    _UI["gen"] = gr.Button("🎬 生成", elem_id="c3d-run-btn")
+                    _UI["result"] = gr.Video(label="RESULT", autoplay=True, height=int(g.get("SEG_BOX_H", 360)) * 2 // 3,
+                                             interactive=False, elem_id="c3d-result-video", buttons=g.get("BTN_MEDIA"))
                 with gr.Column(elem_classes=["panel"], elem_id="c3d-out-box"):
                     _UI["export"] = gr.Button("🎞 ガイドを書き出す", elem_id="c3d-export")
                     _UI["out"] = gr.Video(label="GUIDE", autoplay=True, loop=True, height=int(g.get("SEG_BOX_H", 360)) * 2 // 3,
@@ -1043,6 +1334,10 @@ def _wire():
     u["unkey"].click(None, js=_call_js("window.__c3d.deleteKey();"))
     u["bridge"].change(_on_bridge, inputs=[u["bridge"]], outputs=[u["dur"], u["aspect"], u["ease"], u["pose"], u["lens"]], queue=False, show_progress="hidden")
     u["export"].click(_after_export, inputs=[u["res"]], outputs=[u["out"], u["msg"]], js=EXPORT_JS, show_progress="minimal")
+    u["rms"].focus(lambda v: _ST["ctx"].gr.update(choices=_refmod_choices(), value=v), inputs=[u["rms"]], outputs=[u["rms"]],
+                   queue=False, show_progress="hidden")
+    u["gen"].click(c3d_generate, inputs=[u["res"], u["rms"], u["place"], u["action"], u["seed"]], outputs=[u["msg"], u["result"]],
+                   js=GEN_JS, concurrency_id="generate", concurrency_limit=1, show_progress="minimal")
 
 
 def wire(ctx, comps):
