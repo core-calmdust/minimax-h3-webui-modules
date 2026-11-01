@@ -20,6 +20,12 @@
        （人の番号の順）→ <Subject N>（説明は refmod_tools の @character N。説明が無ければラベルだけ）、場所と時刻つきの動き・セリフから
        6 節のプロンプトを組む（人の立ち位置は書き出しの最初・最後のコマで画面の左・中央・右を測って書く）。Turbo・Steps は CREATE の今の設定。
        結果は LIBRARY（/content）にメタつきで残る。生成は本体の生成と直列（concurrency_id="generate"）。
+0.3.0: 利用者要望（2026-11-02）「キーフレームの画像から人物を認識して 3D カメラにする。画像はコマとして使うことも使わないことも出来る」。
+       編集画面に「🖼 画像」（下敷き。カメラの表示に半透明で重ね、濃さを切り替え）と「👤 画像から配置」:
+       MediaPipe Pose Landmarker（Apache-2.0、jsdelivr の tasks-vision と Google の公開モデルをブラウザで読む）で人の関節を取り、
+       胴（肩の中点〜腰の中点）の長さ〔世界座標 m ÷ 画素〕とレンズから距離、胴の向きからカメラの俯き、腰の高さ（立ち 0.92m／座り 0.5m）から
+       カメラの高さ、肩の向きから体の向き、膝・腰・手首から姿勢（立つ・座る・歩く・手を上げる）を決めて、今の時刻のキーとして置く（人数も合わせる）。
+       生成の箱に「画像を最初のコマにする」: 本体の R2V のキーフレーム（kf_prepare → _run_pipe(kf_entries=)）で 0 秒に置く。⏳ セル203 で確認中
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -33,7 +39,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -48,6 +54,9 @@ GUIDE_SHORT = 480                        # ガイドの書き出しの短辺（�
 GUIDE_READ_EDGE = 256                    # 0.2.0 生成でガイドを読む短辺（セル200・201: 256 が最も忠実で速い。192 以下は崩れ始める）
 MAX_SEC = 15.0
 MAX_FRAMES = 17 * 21 + 5                 # 362 コマ（約 15 秒）
+MP_VER = "0.10.14"                       # 0.3.0 @mediapipe/tasks-vision（Apache-2.0）
+MP_MODEL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/"
+            "pose_landmarker_lite.task")
 
 I18N = {
     # ---- 部品 ----
@@ -107,6 +116,22 @@ I18N = {
     "人体を読み込めませんでした": {"en": "Could not load the mannequin", "zh": "无法加载人体模型", "ko": "인체 모델을 불러올 수 없었습니다"},
     "書き出し中 {v0} / {v1} コマ": {"en": "Exporting {v0} / {v1} frames", "zh": "导出中 {v0} / {v1} 帧", "ko": "내보내는 중 {v0} / {v1} 프레임"},
     "再生": {"en": "Play", "zh": "播放", "ko": "재생"},
+    # ---- 0.3.0 画像 ----
+    "🖼 画像": {"en": "🖼 Image", "zh": "🖼 图像", "ko": "🖼 이미지"},
+    "👤 画像から配置": {"en": "👤 Place from image", "zh": "👤 按图像摆放", "ko": "👤 이미지에서 배치"},
+    "下敷き": {"en": "Overlay", "zh": "底图", "ko": "밑그림"},
+    "人を探しています…": {"en": "Finding people…", "zh": "正在寻找人物…", "ko": "인물을 찾는 중…"},
+    "人を認識できませんでした": {"en": "Could not detect people", "zh": "无法识别人物", "ko": "인물을 인식하지 못했습니다"},
+    "画像に人が見つかりませんでした": {"en": "No people found in the image", "zh": "图像中没有找到人物", "ko": "이미지에서 인물을 찾지 못했습니다"},
+    "画像を最初のコマにする": {"en": "Use the image as the first frame", "zh": "把图像作为第一帧", "ko": "이미지를 첫 프레임으로 사용"},
+    "🖼 画像を最初のコマにします（0 秒のキーフレーム）": {"en": "🖼 Using the image as the first frame (keyframe at 0 s)",
+                                               "zh": "🖼 把图像作为第一帧（0 秒的关键帧）", "ko": "🖼 이미지를 첫 프레임으로 사용합니다(0 초 키프레임)"},
+    "⚠️ 最初のコマにする画像がありません（編集画面の「🖼 画像」で読み込んでください）": {
+        "en": "⚠️ No image for the first frame (load one with “🖼 Image” in the editor)",
+        "zh": "⚠️ 没有作为第一帧的图像（请在编辑器中用「🖼 图像」读取）",
+        "ko": "⚠️ 첫 프레임으로 쓸 이미지가 없습니다(편집 화면의 「🖼 이미지」로 불러오세요)"},
+    "⚠️ キーフレームを用意できませんでした: {v0}": {"en": "⚠️ Could not prepare the keyframe: {v0}", "zh": "⚠️ 无法准备关键帧：{v0}",
+                                         "ko": "⚠️ 키프레임을 준비할 수 없었습니다: {v0}"},
     # ---- 0.2.0 生成 ----
     "人物の RefMod（人の番号の順）": {"en": "People's RefMods (in person order)", "zh": "人物的 RefMod（按人物编号顺序）", "ko": "인물의 RefMod(인물 번호 순서)"},
     "場所・背景": {"en": "Place / background", "zh": "地点・背景", "ko": "장소・배경"},
@@ -145,7 +170,8 @@ I18N = {
 _ST = {"ctx": None, "jobs": {}, "lock": threading.Lock()}
 _UI = {}
 
-JS_TEXT_KEYS = ("全体", "カメラ", "女性", "男性", "読み込み中…", "three.js を読み込めませんでした", "人体を読み込めませんでした",
+JS_TEXT_KEYS = ("🖼 画像", "👤 画像から配置", "下敷き", "人を探しています…", "人を認識できませんでした", "画像に人が見つかりませんでした",
+                "全体", "カメラ", "女性", "男性", "読み込み中…", "three.js を読み込めませんでした", "人体を読み込めませんでした",
                 "書き出し中 {v0} / {v1} コマ", "再生", "停止")
 
 
@@ -377,7 +403,7 @@ def _canvas(edge):
     return cm()
 
 
-def c3d_generate(gpath, rms, place, action, seed):
+def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
     """書き出したガイドで R2V を回す（ジェネレータ: (STATUS, 結果の動画)）"""
     import time
     import numpy as np
@@ -419,6 +445,21 @@ def c3d_generate(gpath, rms, place, action, seed):
     sd = int(seed) if seed is not None and int(seed) >= 0 else int(np.random.randint(0, 2 ** 31 - 1))
     refs = {"image": [], "video": [gp], "audio": []}
     box = {}
+    kfe = None
+    if usekf:                                                     # 0.3.0 画像を 0 秒のキーフレームに（本体の R2V のキーフレーム）
+        kp = str(kfpath or "")
+        if not (kp and os.path.isfile(kp)):
+            lines.append(_T("⚠️ 最初のコマにする画像がありません（編集画面の「🖼 画像」で読み込んでください）"))
+        else:
+            try:
+                kfe, _kn, kerr = g["kf_prepare"]([{"path": kp, "sec": 0.0, "name": os.path.basename(kp)}], w, h, nf)
+                if kfe:
+                    lines.append(_T("🖼 画像を最初のコマにします（0 秒のキーフレーム）"))
+                else:
+                    lines.append(_T("⚠️ キーフレームを用意できませんでした: {v0}", v0=kerr or "?"))
+            except Exception as e:                                # noqa: BLE001
+                kfe = None
+                lines.append(_T("⚠️ キーフレームを用意できませんでした: {v0}", v0=f"{e}"))
     try:
         ok, msg = g["ensure_mode"]("Ref2VA")
         if not ok:
@@ -444,7 +485,7 @@ def c3d_generate(gpath, rms, place, action, seed):
         def _worker():
             try:
                 with _canvas(GUIDE_READ_EDGE):
-                    box["res"] = g["_run_pipe"]("Ref2VA", prompt, w, h, nf, steps, sd, None, None, refs, prog)
+                    box["res"] = g["_run_pipe"]("Ref2VA", prompt, w, h, nf, steps, sd, None, None, refs, prog, kf_entries=kfe)
             except BaseException as e:                            # noqa: BLE001
                 box["err"] = e
         th = threading.Thread(target=_worker, daemon=True)
@@ -482,7 +523,8 @@ def c3d_generate(gpath, rms, place, action, seed):
     try:
         m = g["build_meta"]("Ref2VA", prompt, w, h, "", nf / float(FPS), nf, steps, sd, key,
                             float(g["_LORA_STATE"].get("strength", 1.0)), refs, float(r.get("sec", 0.0)), float(r.get("peak", 0.0)))
-        m["camera3d"] = {"guide": gp, "read_edge": GUIDE_READ_EDGE, "module": f"{NAME} {VERSION}"}
+        m["camera3d"] = {"guide": gp, "read_edge": GUIDE_READ_EDGE, "first_frame": (str(kfpath) if kfe else ""),
+                         "module": f"{NAME} {VERSION}"}
         m["refmods"] = {"names": rms[:max(1, n_people)], "strength": 1.0, "each": {n: 1.0 for n in rms[:max(1, n_people)]}, "cap": 0}
         g["write_meta"](out, m)
     except Exception as e:                                        # noqa: BLE001
@@ -510,10 +552,16 @@ HTML_TEMPLATE = """
 <div class="c3d-root">
   <div class="c3d-view" tabindex="0">
     <canvas class="c3d-canvas"></canvas>
+    <img class="c3d-bg" alt="">
     <div class="c3d-labels"></div>
     <div class="c3d-bar">
       <button type="button" class="c3d-btn c3d-v-edit" data-view="edit"></button>
       <button type="button" class="c3d-btn c3d-v-cam" data-view="cam"></button>
+      <span class="c3d-sep"></span>
+      <button type="button" class="c3d-btn c3d-img"></button>
+      <button type="button" class="c3d-btn c3d-bgop"></button>
+      <button type="button" class="c3d-btn c3d-fit"></button>
+      <input type="file" class="c3d-file" accept="image/*" hidden>
     </div>
     <div class="c3d-msg"></div>
   </div>
@@ -548,6 +596,9 @@ async function loadTexts() { try { TX = await server.c3d_texts(0) || {}; } catch
 function paintStatic() {
   host.querySelector('.c3d-v-edit').textContent = tx('全体');
   host.querySelector('.c3d-v-cam').textContent = tx('カメラ');
+  host.querySelector('.c3d-img').textContent = tx('🖼 画像');
+  host.querySelector('.c3d-fit').textContent = tx('👤 画像から配置');
+  if (S) paintBgBtn();
   playBtn.title = tx(S && S.playing ? '停止' : '再生');
   if (S) buildRows();
 }
@@ -684,7 +735,7 @@ async function spawn(p) {
   const v = new THREE.Vector3(); let footY = 0;
   if (bones.ball_l) { bones.ball_l.getWorldPosition(v); footY = v.y; }
   const label = document.createElement('div'); label.className = 'c3d-label'; labelsEl.appendChild(label);
-  const rt = { wrap, model, bones, rest, mat, pick, footY, label, pose: null };
+  const rt = { wrap, model, bones, rest, mat, pick, footY, label, pose: null, kind: p.kind };
   RT.set(p.id, rt);
   return rt;
 }
@@ -824,10 +875,10 @@ orbitEdit.addEventListener('change', () => { dirty = true; });
 function setView(v) {
   S.view = v === 'edit' ? 'edit' : 'cam';
   orbitEdit.enabled = S.view === 'edit'; orbitShot.enabled = S.view === 'cam';
-  host.querySelectorAll('.c3d-bar .c3d-btn').forEach((b) => b.classList.toggle('c3d-on', b.dataset.view === S.view));
-  attachGizmo(); save(); dirty = true;
+  host.querySelectorAll('.c3d-bar .c3d-btn[data-view]').forEach((b) => b.classList.toggle('c3d-on', b.dataset.view === S.view));
+  attachGizmo(); save(); dirty = true; placeBg();
 }
-host.querySelectorAll('.c3d-bar .c3d-btn').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+host.querySelectorAll('.c3d-bar .c3d-btn[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 const ray = new THREE.Raycaster();
 let downXY = null;
 canvas.addEventListener('pointerdown', (e) => { downXY = [e.clientX, e.clientY]; });
@@ -879,6 +930,7 @@ function render() {
     renderer.render(scene, editCam);
   }
   renderer.setScissorTest(false);
+  placeBg(vp);
   // 人の番号（<Subject N> になる順）
   const cam = S.view === 'cam' ? shot : editCam, v = new THREE.Vector3();
   S.people.forEach((p, i) => {
@@ -965,6 +1017,148 @@ function bridge() {                        // 選んでいる人の姿勢・今�
   if (tb.value === val) return;
   tb.value = val; tb.dispatchEvent(new Event('input', { bubbles: true }));
 }
+
+// ---------------- 0.3.0 画像の下敷きと、画像から配置 ----------------
+const bgEl = host.querySelector('.c3d-bg'), fileEl = host.querySelector('.c3d-file');
+const BG_OPS = [0, 0.35, 0.65];
+let bgFull = null;                         // 認識に使う元の大きさの画像（保存しない）
+function paintBgBtn() {
+  const b = host.querySelector('.c3d-bgop');
+  b.textContent = tx('下敷き') + ' ' + Math.round((S.bgOp || 0) * 100) + '%';
+  b.style.display = S.bg ? '' : 'none';
+  host.querySelector('.c3d-fit').style.display = S.bg ? '' : 'none';
+}
+function placeBg(vp) {
+  if (!S.bg || S.view !== 'cam' || !(S.bgOp > 0)) { bgEl.style.display = 'none'; return; }
+  vp = vp || viewRect();
+  if (bgEl.getAttribute('src') !== S.bg) bgEl.src = S.bg;
+  Object.assign(bgEl.style, { display: 'block', left: vp.x + 'px', top: vp.y + 'px', width: vp.w + 'px', height: vp.h + 'px',
+    opacity: String(S.bgOp) });
+}
+function nearestAspect(w, h) {
+  let best = '16:9', d = 1e9;
+  for (const [k, a] of Object.entries(ASPECTS)) { const e = Math.abs(Math.log((w / h) / (a[0] / a[1]))); if (e < d) { d = e; best = k; } }
+  return best;
+}
+host.querySelector('.c3d-img').addEventListener('click', () => fileEl.click());
+host.querySelector('.c3d-bgop').addEventListener('click', () => {
+  const i = BG_OPS.indexOf(S.bgOp); S.bgOp = BG_OPS[(i + 1) % BG_OPS.length]; paintBgBtn(); placeBg(); save();
+});
+fileEl.addEventListener('change', async () => {
+  const f = fileEl.files && fileEl.files[0]; if (!f) return;
+  fileEl.value = '';
+  const url = await new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ng; r.readAsDataURL(f); });
+  const im = new Image(); im.src = url; await im.decode();
+  bgFull = im;
+  // 下敷きは長い辺 960 の JPEG にしてブラウザに控える（再読み込みでも残す）。元の画像はサーバへ（最初のコマに使うとき）
+  const k = Math.min(1, 960 / Math.max(im.width, im.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
+  cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+  S.bg = cv.toDataURL('image/jpeg', 0.85); S.bgW = im.width; S.bgH = im.height;
+  if (!(S.bgOp > 0)) S.bgOp = 0.35;
+  S.bgPath = '';
+  try { const u = await upload(f); S.bgPath = (u && u.path) || ''; } catch (e) { console.warn(e); }
+  api.set({ aspect: nearestAspect(im.width, im.height) });
+  setView('cam'); paintBgBtn(); placeBg(); save(); bridge();
+});
+let poser = null;
+async function getPoser() {
+  if (poser) return poser;
+  const V = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@__MP_VER__';
+  const mp = await import(V + '/vision_bundle.mjs');
+  const fs = await mp.FilesetResolver.forVisionTasks(V + '/wasm');
+  poser = await mp.PoseLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: '__MP_MODEL__', delegate: 'CPU' },
+    runningMode: 'IMAGE', numPoses: 6 });
+  return poser;
+}
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 });
+const toCam = (p) => new THREE.Vector3(p.x, -p.y, -p.z);         // MediaPipe の世界座標（x 右・y 下・z 奥）→ カメラ座標（y 上・z 手前）
+function ang(a, b, c) {                    // b の角（度）
+  const u = new THREE.Vector3(a.x - b.x, a.y - b.y, a.z - b.z), v = new THREE.Vector3(c.x - b.x, c.y - b.y, c.z - b.z);
+  return u.angleTo(v) * 180 / Math.PI;
+}
+function poseOf(w, L) {
+  const knee = Math.min(ang(w[23], w[25], w[27]), ang(w[24], w[26], w[28]));
+  const hip = Math.min(ang(w[11], w[23], w[25]), ang(w[12], w[24], w[26]));
+  if (hip < 130 && knee < 140) return 'sit';
+  if (L[15].y < L[11].y || L[16].y < L[12].y) return 'raise';
+  const stride = Math.hypot(w[27].x - w[28].x, w[27].z - w[28].z);
+  if (stride > 0.32) return 'walk';
+  return 'stand';
+}
+async function fitFromImage() {
+  if (!bgFull) {                            // 再読み込み後は控えの下敷きで認識する
+    if (!S.bg) return;
+    const im = new Image(); im.src = S.bg; await im.decode(); bgFull = im;
+  }
+  say(tx('人を探しています…'));
+  let res;
+  try { res = (await getPoser()).detect(bgFull); } catch (e) { say(tx('人を認識できませんでした') + ': ' + e); return; }
+  const n = (res.landmarks || []).length;
+  if (!n) { say(tx('画像に人が見つかりませんでした')); setTimeout(() => say(''), 2500); return; }
+  const W = bgFull.naturalWidth || bgFull.width, H = bgFull.naturalHeight || bgFull.height;
+  const lens = camAt(S.t).lens || 35;
+  const fpx = (W >= H ? W : H) * lens / 36;  // three の filmGauge 36 は長い辺
+  // 人ごとにカメラ座標の腰の位置・胴の向き（上）・体の向き
+  const P = [];
+  for (let i = 0; i < n; i++) {
+    const L = res.landmarks[i], w = res.worldLandmarks[i];
+    const sh2 = mid(L[11], L[12]), hp2 = mid(L[23], L[24]);
+    const lpx = Math.hypot((sh2.x - hp2.x) * W, (sh2.y - hp2.y) * H);
+    const sw = mid(w[11], w[12]), hw = mid(w[23], w[24]);
+    const lm = Math.hypot(sw.x - hw.x, sw.y - hw.y, sw.z - hw.z);
+    if (!(lpx > 4) || !(lm > 0.05)) continue;
+    const Z = fpx * lm / lpx;
+    const hipC = new THREE.Vector3((hp2.x * W - W / 2) * Z / fpx, -(hp2.y * H - H / 2) * Z / fpx, -Z);
+    const up = toCam({ x: sw.x - hw.x, y: sw.y - hw.y, z: sw.z - hw.z }).normalize();
+    const s = { x: w[11].x - w[12].x, y: w[11].y - w[12].y, z: w[11].z - w[12].z };     // 右肩 → 左肩
+    const fwd = toCam({ x: s.z, y: 0, z: -s.x });                                       // 肩 × 上（MediaPipe の座標で）→ 体の前
+    const pose = poseOf(w, L);
+    P.push({ hipC, up, fwd, pose, sx: hp2.x });
+  }
+  if (!P.length) { say(tx('画像に人が見つかりませんでした')); setTimeout(() => say(''), 2500); return; }
+  P.sort((a, b) => a.sx - b.sx);           // 画面の左から（人の番号＝<Subject N> の順）
+  // カメラの俯き（胴の上向きの平均から）と高さ（腰の高さから）
+  const upm = new THREE.Vector3(); P.forEach((q) => upm.add(q.up)); upm.normalize();
+  let th = Math.atan2(upm.z, upm.y);
+  th = Math.max(-0.5, Math.min(0.8, th));
+  const upC = new THREE.Vector3(0, Math.cos(th), Math.sin(th));
+  const rot = (v) => new THREE.Vector3(v.x, v.y * Math.cos(th) + v.z * Math.sin(th), -v.y * Math.sin(th) + v.z * Math.cos(th));
+  let hc = 0; P.forEach((q) => { hc += (q.pose === 'sit' ? 0.5 : 0.92) - q.hipC.dot(upC); }); hc /= P.length;
+  hc = Math.max(0.2, Math.min(6, hc));
+  const wp = P.map((q) => rot(q.hipC));
+  const cz = wp.reduce((a, v) => a + v.z, 0) / wp.length, cx = wp.reduce((a, v) => a + v.x, 0) / wp.length;
+  const camPos = new THREE.Vector3(-cx, hc, -cz);
+  const dist = Math.max(0.5, -cz);
+  const tgt = camPos.clone().add(new THREE.Vector3(0, -Math.sin(th), -Math.cos(th)).multiplyScalar(dist));
+  // 人数を合わせる（左から順に、今の人の種類を引き継ぐ）
+  const old = S.people.slice().sort((a, b) => personAt(a, S.t).x - personAt(b, S.t).x);
+  while (S.people.length > P.length) { const p = S.people.pop(); despawn(p.id); }
+  const kinds = old.map((p) => p.kind);
+  while (S.people.length < P.length) {
+    const p = { id: 'p' + Date.now().toString(36) + S.people.length, kind: 'f', pose: 'stand', x: 0, z: 0, ry: 0, keys: [] };
+    S.people.push(p); await spawn(p);
+  }
+  S.people.forEach((p, i) => {
+    const q = P[i], v = wp[i], f = rot(q.fwd);
+    p.kind = kinds[i] || p.kind;
+    p.pose = q.pose;
+    const val = { x: v.x - cx, z: v.z - cz, ry: Math.atan2(f.x, f.z) };
+    if (p.keys.length) setKey(p.keys, S.t, val); else Object.assign(p, val);
+    const rt = RT.get(p.id); if (rt) rt.pose = null;
+  });
+  // 種類（女性／男性）が変わった人は作り直す
+  for (const p of S.people) {
+    const rt = RT.get(p.id);
+    if (rt && rt.kind !== p.kind) { despawn(p.id); await spawn(p); }
+  }
+  const c = { pos: camPos.toArray(), tgt: tgt.toArray(), lens };
+  if (S.cam.keys.length) setKey(S.cam.keys, S.t, c); else Object.assign(S.cam, c);
+  S.bgOp = S.bgOp > 0 ? S.bgOp : 0.35;
+  say(''); setView('cam'); select('cam'); buildRows(); setTime(S.t); paintBgBtn();
+}
+host.querySelector('.c3d-fit').addEventListener('click', () => { fitFromImage().catch((e) => say(String(e))); });
+
 const api = {
   set(o) {
     o = o || {};
@@ -1002,6 +1196,7 @@ const api = {
     S.sel = 'cam'; keyNow('cam'); setTime(S.t, true); buildRows();
   },
   keySelected() { keyNow(S.sel); },
+  bgPath() { return S.bgPath || ''; },
   deleteKey() {
     const tr = trackOf(S.sel); if (!tr) return;
     const i = tr.keys.findIndex((k) => Math.abs(k.t - S.t) < KEY_EPS);
@@ -1064,7 +1259,7 @@ try {
 } catch (e) { say(tx('人体を読み込めませんでした') + ': ' + e); return; }
 { const a = ASPECTS[S.aspect] || [16, 9]; shotAspect = a[0] / a[1]; }
 say('');
-setView(S.view); select(S.sel); setTime(S.t);
+setView(S.view); select(S.sel); setTime(S.t); paintBgBtn();
 host.dataset.ready = '1';
 requestAnimationFrame(loop);
 })();
@@ -1073,7 +1268,7 @@ requestAnimationFrame(loop);
 
 def _js():
     return (JS_ON_LOAD.replace("__THREE_VER__", THREE_VER).replace("__GUIDE_SHORT__", str(int(GUIDE_SHORT)))
-            .replace("__MAX_FRAMES__", str(int(MAX_FRAMES))))
+            .replace("__MAX_FRAMES__", str(int(MAX_FRAMES))).replace("__MP_VER__", MP_VER).replace("__MP_MODEL__", MP_MODEL))
 
 
 # 書き出しボタン: JS で描いて送り、できた mp4 のパスを Python へ渡す
@@ -1089,11 +1284,12 @@ async (x) => {
 
 # 0.2.0 生成ボタン: 先にガイドを書き出し、そのパスと入力を Python へ
 GEN_JS = """
-async (x, rms, place, action, seed) => {
+async (x, rms, place, action, seed, usekf, kf) => {
+  const bg = window.__c3d ? window.__c3d.bgPath() : '';
   try {
-    if (!window.__c3d) return ['', rms, place, action, seed];
-    return [await window.__c3d.exportGuide(), rms, place, action, seed];
-  } catch (e) { return ['ERR: ' + (e && e.message ? e.message : e), rms, place, action, seed]; }
+    if (!window.__c3d) return ['', rms, place, action, seed, usekf, bg];
+    return [await window.__c3d.exportGuide(), rms, place, action, seed, usekf, bg];
+  } catch (e) { return ['ERR: ' + (e && e.message ? e.message : e), rms, place, action, seed, usekf, bg]; }
 }
 """
 
@@ -1113,10 +1309,11 @@ _MIRROR = {                                                       # SEGMENTS の
     "#seg-len": ["#c3d-dur", "#c3d-lens"],
     "#status-panel": ["#c3d-status"], "#lora-dd": ["#c3d-aspect", "#c3d-ease", "#c3d-pose", "#c3d-mode"],
     "#seg-note": ["#c3d-note"],
+    "#seg-reseed": ["#c3d-usekf"],                                # 0.3.0 チェック（RETAKE の #rt-inherit と同じ写し）
 }
 CSS = ""
 CSS_EXTRA = """
-#c3d-bridge, #c3d-res { display: none !important; }
+#c3d-bridge, #c3d-res, #c3d-kf { display: none !important; }
 #c3d-left { justify-content: flex-start !important; }
 #c3d-left > * { flex: 0 0 auto !important; }
 #c3d-scene > *, #c3d-obj > *, #c3d-gen > * { margin-top: 0 !important; }
@@ -1136,11 +1333,13 @@ CSS_EXTRA = """
 #c3d-editor .c3d-view { position: relative; width: 100%; aspect-ratio: 16 / 10; max-height: 440px; border: 1px solid var(--h3-border); border-radius: 10px;
     overflow: hidden; background: #161618; outline: none; }
 #c3d-editor .c3d-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-#c3d-editor .c3d-bar { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; }
+#c3d-editor .c3d-bar { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 #c3d-editor .c3d-btn { height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--h3-border2);
     background: var(--h3-icon-btn); color: var(--h3-muted); font-size: 11px; letter-spacing: 0.04em; cursor: pointer; }
 #c3d-editor .c3d-btn:hover { background: var(--h3-elev); border-color: var(--h3-border-hover); color: var(--h3-text); }
 #c3d-editor .c3d-btn.c3d-on { border-color: var(--h3-accent); color: var(--h3-accent-text); }
+#c3d-editor .c3d-bg { display: none; position: absolute; pointer-events: none; object-fit: fill; }
+#c3d-editor .c3d-sep { width: 6px; }
 #c3d-editor .c3d-msg { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     padding: 6px 12px; border-radius: 6px; background: var(--h3-caption-bg); color: var(--h3-text3); font-size: 12px; }
 #c3d-editor .c3d-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -1181,7 +1380,10 @@ HELP_C3D = ("3D の場に人（マネキン）とカメラを置き、時刻ご�
             "「🎬 生成」はガイドを書き出して R2V に <Video 1> として渡します（短辺 256 で読むので速く、ガイドに忠実）。"
             "人物の RefMod は人の番号の順に選びます（1 人目→<Subject 1>）。見た目の説明がある RefMod は説明も入ります。"
             "場所と、時刻つきの動き・セリフを書けば、人の立ち位置（画面の左・中央・右）を足して 6 節のプロンプトを組みます。"
-            "動きの欄に subject_definitions: から始まる全文を書けば、そのまま使います。Turbo・Steps は CREATE の今の設定です")
+            "動きの欄に subject_definitions: から始まる全文を書けば、そのまま使います。Turbo・Steps は CREATE の今の設定です。\n"
+            "「🖼 画像」でキーフレームの画像を読むと、カメラの表示に下敷きとして重なります（「下敷き」で濃さを切り替え）。"
+            "「👤 画像から配置」は画像の人を認識して、人数・立ち位置・向き・姿勢とカメラの位置・高さ・俯きを今の時刻に置きます（おおまかなので下敷きを見て仕上げます）。"
+            "生成の「画像を最初のコマにする」を ON にすると、その画像から始まります")
 
 I18N.update({
     HELP_C3D: {
@@ -1192,19 +1394,19 @@ I18N.update({
               "(Gizmo = Rotate turns them); in the “Camera” view drag to orbit, right-drag to pan and use the wheel to dolly. "
               "Move the playhead first, then move a person or the camera to set a key at that time (anything with no keys stays still).\n"
               "Acting is not animated here — write it in the generation prompt. Guides are exported at 24 fps, 17n+5 frames, short side 480, "
-              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings.",
+              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings. \n“🖼 Image” loads a keyframe image as an overlay in the Camera view (“Overlay” changes its opacity). “👤 Place from image” detects the people in it and sets the number of people, their positions, facing and poses and the camera position, height and tilt at the current time (rough — finish it against the overlay). Turn on “Use the image as the first frame” to start the generation from that image.",
         "zh": "在 3D 场景中放置人物（人体模型）和摄像机，用关键帧决定每个时刻的站位、朝向和摄像机位置，并导出灰色的引导视频。"
               "把引导视频作为 R2V 的视频参考，人物的位置、姿势、构图和摄像机运动会跟随引导（单元 196・197）。\n"
               "用「＋ 女性」「＋ 男性」添加人物，在画面中点击选择。在「全景」视图中拖动箭头移动（操作＝旋转可改变朝向），"
               "在「摄像机」视图中拖动环绕、右键拖动平移、滚轮推拉。先移动时间，再移动人物或摄像机，就会在该时刻设置关键帧（没有关键帧的对象保持不动）。\n"
-              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。",
+              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。\n「🖼 图像」读取关键帧图像，在摄像机视图中作为底图叠加（「底图」切换浓淡）。「👤 按图像摆放」识别图中的人物，在当前时刻设置人数・站位・朝向・姿势以及摄像机的位置・高度・俯角（比较粗略，请对照底图调整）。打开「把图像作为第一帧」后，生成会从该图像开始。",
         "ko": "3D 공간에 인물(마네킹)과 카메라를 놓고, 시간마다 서는 위치·방향·카메라 위치를 키프레임으로 정해 회색 가이드 영상을 내보냅니다. "
               "가이드를 R2V 의 영상 참조로 쓰면 인물의 위치·자세·구도·카메라 움직임이 가이드를 따라옵니다(셀 196・197).\n"
               "「＋ 여성」「＋ 남성」으로 인물을 추가하고 화면에서 눌러 선택합니다. 「전체」 보기에서는 화살표로 움직이고(조작＝회전으로 방향 변경), "
               "「카메라」 보기에서는 드래그로 돌아가기·오른쪽 드래그로 평행 이동·휠로 다가가기/물러나기를 합니다. "
               "시간을 먼저 옮긴 뒤 인물이나 카메라를 움직이면 그 시간에 키가 들어갑니다(키가 하나도 없는 것은 멈춘 채로).\n"
               "움직임(연기)은 여기서 만들지 않고 생성 프롬프트에 씁니다. 가이드는 24fps・17n+5 프레임・짧은 변 480 으로 /content/camera3d/ 에 내보냅니다"
-              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다."},
+              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다.\n「🖼 이미지」로 키프레임 이미지를 불러오면 카메라 보기에 밑그림으로 겹칩니다(「밑그림」으로 농도 전환). 「👤 이미지에서 배치」는 이미지 속 인물을 인식해 인원・서는 위치・방향・자세와 카메라의 위치・높이・부감을 현재 시간에 둡니다(대략적이므로 밑그림을 보며 다듬습니다). 생성의 「이미지를 첫 프레임으로 사용」을 켜면 그 이미지에서 시작합니다."},
 })
 
 
@@ -1273,6 +1475,7 @@ def build_slot(ctx, slot):
                     _UI["action"] = gr.Textbox(label="動き・セリフ（時刻つき）", lines=4, elem_id="c3d-action",
                                                placeholder="例: 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.")
                     _UI["seed"] = gr.Number(value=-1, precision=0, label="Seed（−1 でランダム）", elem_id="c3d-seed")
+                    _UI["usekf"] = gr.Checkbox(value=False, label="画像を最初のコマにする", elem_id="c3d-usekf")
                 gr.Markdown("人は「＋ 女性」「＋ 男性」で足し、画面で押して選びます。時刻を動かしてから人やカメラを動かすと、その時刻にキーが入ります"
                             "（「カメラ」の表示では、ドラッグで回り込み・右ドラッグで平行移動・ホイールで寄り引き）。動き（演技）はここでは付けず、生成のプロンプトに書きます。",
                             elem_id="c3d-note")
@@ -1310,6 +1513,7 @@ def build_slot(ctx, slot):
                                           interactive=False, elem_id="c3d-out-video", buttons=g.get("BTN_MEDIA"))
                 _UI["bridge"] = gr.Textbox(value="", elem_id="c3d-bridge", show_label=False, container=False)
                 _UI["res"] = gr.Textbox(value="", elem_id="c3d-res", show_label=False, container=False)
+                _UI["kf"] = gr.Textbox(value="", elem_id="c3d-kf", show_label=False, container=False)
         hi = g.get("help_icon")
         if hi is not None:
             try:
@@ -1336,7 +1540,8 @@ def _wire():
     u["export"].click(_after_export, inputs=[u["res"]], outputs=[u["out"], u["msg"]], js=EXPORT_JS, show_progress="minimal")
     u["rms"].focus(lambda v: _ST["ctx"].gr.update(choices=_refmod_choices(), value=v), inputs=[u["rms"]], outputs=[u["rms"]],
                    queue=False, show_progress="hidden")
-    u["gen"].click(c3d_generate, inputs=[u["res"], u["rms"], u["place"], u["action"], u["seed"]], outputs=[u["msg"], u["result"]],
+    u["gen"].click(c3d_generate, inputs=[u["res"], u["rms"], u["place"], u["action"], u["seed"], u["usekf"], u["kf"]],
+                   outputs=[u["msg"], u["result"]],
                    js=GEN_JS, concurrency_id="generate", concurrency_limit=1, show_progress="minimal")
 
 

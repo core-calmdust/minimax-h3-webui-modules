@@ -29,3 +29,6 @@ assets/camera3d/human_f.glb and human_m.glb are modified copies (textures remove
 assets/camera3d/README.md and License_Quaternius_Standard.txt.
 modules/camera3d.py loads three.js (https://github.com/mrdoob/three.js, MIT License, Copyright © 2010-2024
 three.js authors) in the browser from cdn.jsdelivr.net at a pinned version; it is not copied into this repository.
+modules/camera3d.py (0.3.0+) loads MediaPipe Tasks Vision (@mediapipe/tasks-vision, https://github.com/google-ai-edge/mediapipe,
+Apache License 2.0) in the browser from cdn.jsdelivr.net at a pinned version, and Google's published Pose Landmarker (lite) model
+from storage.googleapis.com at run time; neither is copied into this repository.
