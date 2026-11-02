@@ -32,6 +32,9 @@
        カメラから始まる）。タイムラインにショットの境目と S1・S2…。書き出しはショットごとに真ん中のコマで構図（全身／膝上／腰上／胸上／顔の寄り）と
        映っている人・左右を測る。プロンプトは動き・セリフの時刻つきの文をカットの時刻で [Shot N] に分け、ショットの頭に構図と「hard cut」を書く。
        プロンプトに書くカットの時刻は CUT_LEAD 秒だけ前倒し（セル202 の遅れ 0.42／0.54 秒から。⏳ 実機で狙いの時刻に入るか確かめる）
+0.4.1: 利用者報告「⏳ 生成中 4/4 steps で止まった」（パイプラインは終わっていた＝後の書き出しで止まった／例外が STATUS に出ない）。
+       生成の後の書き出し（コマ → mp4・音・メタ）を try で包み、失敗したら理由を STATUS に出す。書き出しの前に「📼 書き出しています…」を出す。
+       コマの変換は本体の生成と同じく、PIL でも配列（uint8／0〜1 の小数）でもそのまま export_to_video に渡せる形にそろえる
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -45,7 +48,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -173,6 +176,8 @@ I18N = {
     "⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s": {"en": "⏳ Generating  {v0}/{v1} steps  ⏱ {v2}s", "zh": "⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s",
                                          "ko": "⏳ 생성 중  {v0}/{v1} steps  ⏱ {v2}s"},
     "❌ 生成に失敗しました: {v0}": {"en": "❌ Generation failed: {v0}", "zh": "❌ 生成失败：{v0}", "ko": "❌ 생성에 실패했습니다: {v0}"},
+    "📼 書き出しています…": {"en": "📼 Writing the video…", "zh": "📼 正在写出视频…", "ko": "📼 영상을 쓰는 중…"},
+    "❌ 動画を書き出せませんでした: {v0}": {"en": "❌ Could not write the video: {v0}", "zh": "❌ 无法写出视频：{v0}", "ko": "❌ 영상을 쓸 수 없었습니다: {v0}"},
     "✅ 生成しました（{v0} 秒）: {v1}": {"en": "✅ Generated ({v0} s): {v1}", "zh": "✅ 已生成（{v0} 秒）：{v1}", "ko": "✅ 생성했습니다({v0} 초): {v1}"},
     "停止": {"en": "Stop", "zh": "停止", "ko": "정지"},
 }
@@ -583,13 +588,25 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
         yield "\n".join(lines + [_T("❌ 生成に失敗しました: {v0}", v0=f"{type(e).__name__}: {e}")]), None
         return
     r = box["res"]
-    frames = [f.convert("RGB") if isinstance(f, Image.Image) else Image.fromarray(np.asarray(f)) for f in r["frames"]]
-    stamp = datetime.datetime.now().strftime("%H%M%S")
-    out = os.path.join("/content", f"minimax_h3_c3d_{stamp}_{sd}.mp4")
-    g["export_to_video"](frames, out, fps=FPS)
+    yield "\n".join(lines + [_T("📼 書き出しています…")]), None
+    try:
+        def _px(f):                                               # PIL・uint8・0〜1 の小数のどれでも RGB の PIL に
+            if isinstance(f, Image.Image):
+                return f.convert("RGB")
+            a = np.asarray(f)
+            if a.dtype != np.uint8:
+                a = np.clip(a * (255.0 if float(a.max(initial=0)) <= 1.0 + 1e-6 else 1.0), 0, 255).round().astype(np.uint8)
+            return Image.fromarray(a)
+        frames = [_px(f) for f in r["frames"]]
+        stamp = datetime.datetime.now().strftime("%H%M%S")
+        out = os.path.join("/content", f"minimax_h3_c3d_{stamp}_{sd}.mp4")
+        g["export_to_video"](frames, out, fps=FPS)
+    except Exception as e:                                        # noqa: BLE001
+        yield "\n".join(lines + [_T("❌ 動画を書き出せませんでした: {v0}", v0=f"{type(e).__name__}: {e}")]), None
+        return
     if r.get("audio") is not None:
         try:
-            g["_mux_audio"](out, g["_audio_array"](r["audio"]), int(r.get("sr") or 32000))
+            g["_mux_audio"](out, r["audio"], r.get("sr"))         # 本体の生成と同じ渡し方
         except Exception as e:                                    # noqa: BLE001
             lines.append(f"⚠️ audio: {e}")
     try:
