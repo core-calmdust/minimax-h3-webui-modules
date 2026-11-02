@@ -26,6 +26,12 @@
        胴（肩の中点〜腰の中点）の長さ〔世界座標 m ÷ 画素〕とレンズから距離、胴の向きからカメラの俯き、腰の高さ（立ち 0.92m／座り 0.5m）から
        カメラの高さ、肩の向きから体の向き、膝・腰・手首から姿勢（立つ・座る・歩く・手を上げる）を決めて、今の時刻のキーとして置く（人数も合わせる）。
        生成の箱に「画像を最初のコマにする」: 本体の R2V のキーフレーム（kf_prepare → _run_pipe(kf_entries=)）で 0 秒に置く。⏳ セル203 で確認中
+0.4.0: カット割り（利用者要望 2026-11-01／セル202: カットを起こすのはプロンプトの [Shot N] 分け、ガイドのカットだけでは切り替わらない。
+       ガイドは時刻と構図を少し引き寄せる。書いた時刻より 0.4〜0.5 秒遅れて切り替わる）。
+       「✂ カット」で再生位置からショットを割る（カメラの補間はカットをまたがない。前のショットの動きは保ち、新しいショットはカットの時刻の
+       カメラから始まる）。タイムラインにショットの境目と S1・S2…。書き出しはショットごとに真ん中のコマで構図（全身／膝上／腰上／胸上／顔の寄り）と
+       映っている人・左右を測る。プロンプトは動き・セリフの時刻つきの文をカットの時刻で [Shot N] に分け、ショットの頭に構図と「hard cut」を書く。
+       プロンプトに書くカットの時刻は CUT_LEAD 秒だけ前倒し（セル202 の遅れ 0.42／0.54 秒から。⏳ 実機で狙いの時刻に入るか確かめる）
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -39,7 +45,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -54,6 +60,7 @@ GUIDE_SHORT = 480                        # ガイドの書き出しの短辺（�
 GUIDE_READ_EDGE = 256                    # 0.2.0 生成でガイドを読む短辺（セル200・201: 256 が最も忠実で速い。192 以下は崩れ始める）
 MAX_SEC = 15.0
 MAX_FRAMES = 17 * 21 + 5                 # 362 コマ（約 15 秒）
+CUT_LEAD = 0.4                           # 0.4.0 プロンプトのカットの時刻を前倒しにする秒（セル202: 書いた時刻より 0.42〜0.54 秒遅れて切り替わった）
 MP_VER = "0.10.14"                       # 0.3.0 @mediapipe/tasks-vision（Apache-2.0）
 MP_MODEL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/"
             "pose_landmarker_lite.task")
@@ -116,6 +123,9 @@ I18N = {
     "人体を読み込めませんでした": {"en": "Could not load the mannequin", "zh": "无法加载人体模型", "ko": "인체 모델을 불러올 수 없었습니다"},
     "書き出し中 {v0} / {v1} コマ": {"en": "Exporting {v0} / {v1} frames", "zh": "导出中 {v0} / {v1} 帧", "ko": "내보내는 중 {v0} / {v1} 프레임"},
     "再生": {"en": "Play", "zh": "播放", "ko": "재생"},
+    # ---- 0.4.0 カット ----
+    "✂ カット": {"en": "✂ Cut", "zh": "✂ 剪切", "ko": "✂ 컷"},
+    "カットを消す": {"en": "Remove cut", "zh": "删除剪切", "ko": "컷 삭제"},
     # ---- 0.3.0 画像 ----
     "🖼 画像": {"en": "🖼 Image", "zh": "🖼 图像", "ko": "🖼 이미지"},
     "👤 画像から配置": {"en": "👤 Place from image", "zh": "👤 按图像摆放", "ko": "👤 이미지에서 배치"},
@@ -342,17 +352,56 @@ def _desc_of(name):
         return False
 
 
+_FRAME_WORD = {"full": "a full shot showing them head to toe", "knee": "a medium-wide shot from the knees up",
+               "waist": "a medium shot from the waist up", "chest": "a chest-up medium close-up", "face": "a close-up on the face",
+               "wide": "a wide shot of the place"}
+_TIME_RE = re.compile(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*s\s*:")
+
+
+def _split_by_shots(act, shots):
+    """時刻つきの文（"0-2s: …"）をショットへ振り分ける → [文, …]（ショットの数だけ）。時刻の無い頭の文は 1 つ目のショットへ"""
+    out = [[] for _ in shots]
+    pos = [(m.start(), float(m.group(1))) for m in _TIME_RE.finditer(act)]
+    if not pos:
+        if act:
+            out[0].append(act)
+        return [" ".join(x) for x in out]
+    if act[:pos[0][0]].strip():
+        out[0].append(act[:pos[0][0]].strip())
+    for i, (st, t0) in enumerate(pos):
+        en = pos[i + 1][0] if i + 1 < len(pos) else len(act)
+        k = max([j for j, sh in enumerate(shots) if t0 >= float(sh["a"]) - 1e-6] or [0])
+        out[k].append(act[st:en].strip())
+    return [" ".join(x) for x in out]
+
+
+def _shift_cut_times(text, src, dst):
+    """動きの文の時刻のうち、カットの時刻（±0.05 秒）と同じものを前倒しした時刻に置き換える（ショットの頭の時刻と食い違わないように）"""
+    def fix(v):
+        x = float(v)
+        for a, b in zip(src, dst):
+            if abs(x - a) <= 0.05:
+                return f"{b:.1f}"
+        return v
+
+    return _TIME_RE.sub(lambda m: f"{fix(m.group(1))}-{fix(m.group(2))}s:", text)
+
+
 def compose_prompt(scene, rms, place, action):
     """シーン（書き出しの JSON）・人ごとの RefMod・場所・動きの文 → 6 節の R2V プロンプト（<RefMod N>・@character N は本体が展開）。
-    動きの文が節の見出し（subject_definitions:）を持っていれば、利用者が書いた全文としてそのまま使う"""
+    動きの文が節の見出し（subject_definitions:）を持っていれば、利用者が書いた全文としてそのまま使う。
+    0.4.0 カットがあれば detailed_description を [Shot N] に分け、各ショットの頭に時刻・構図・映っている人を書く（カットの時刻は CUT_LEAD 前倒し）"""
     act = str(action or "").strip()
     if re.search(r"^\s*subject_definitions\s*:", act, re.M):
         return act
     people = list(scene.get("people") or [])
     scr = scene.get("screen") or {}
     grays = list(scene.get("grays") or [])
+    shots = list(scene.get("shots") or [])
+    multi = len(shots) > 1
     place = str(place or "").strip() or "a natural, realistic location"
     defs, who, keep, pos = [], [], [], []
+    shot_tags = ", ".join(f"[Shot {i + 1}]" for i in range(len(shots))) if multi else "[Shot 1]"
     for i, p in enumerate(people):
         n = i + 1
         rm = rms[i] if i < len(rms) else None
@@ -365,22 +414,45 @@ def compose_prompt(scene, rms, place, action):
         w1 = _where(sc[-1][0]) if len(sc) > 1 else w0
         tone = _tone_word(grays[i]) if i < len(grays) else "grey"
         who.append(f"<Subject {n}> is the {tone} mannequin {w0}")
-        pos.append(f"<Subject {n}> stands {w0}" + (f" and ends {w1}" if w1 != w0 else ""))
-        keep.append(f"<Subject {n}> (appears in [Shot 1]): partially_preserved - face and hair are kept; the pose and place "
+        pos.append(f"<Subject {n}> stands {w0}" + (f" and ends {w1}" if (w1 != w0 and not multi) else ""))
+        keep.append(f"<Subject {n}> (appears in {shot_tags}): partially_preserved - face and hair are kept; the pose and place "
                     f"follow the guide and the description.")
-    guide = ("The camera movement, the framing and where each person stands and faces come from <Video 1>, a simple grey mannequin "
-             "guide: each grey mannequin stands for one person. " + ("; ".join(who) + ". " if who else "")
-             + "The guide's grey look is not shown; the people and the place look real. Faces stay the same people throughout.")
+    if multi:
+        cut_t = [max(0.1, float(sh["a"]) - CUT_LEAD) for sh in shots[1:]]
+        guide = ("The camera, the framing and where each person stands in each shot come from <Video 1>, a simple grey mannequin guide "
+                 "with the same hard cuts: each grey mannequin stands for one person. " + ("; ".join(who) + ". " if who else "")
+                 + "The guide's grey look is not shown; the people and the place look real. Faces stay the same people in every shot.")
+        summ = (f"{len(shots)} shots in {place}, joined by hard cuts at " + ", ".join(f"{c:.1f}s" for c in cut_t) + f". {guide}")
+        parts_act = [_shift_cut_times(x, [float(sh["a"]) for sh in shots[1:]], cut_t) for x in _split_by_shots(act, shots)]
+        lines = []
+        for i, sh in enumerate(shots):
+            a = 0.0 if i == 0 else cut_t[i - 1]
+            b = cut_t[i] if i < len(cut_t) else float(sh["b"])
+            vis = sorted(sh.get("who") or [], key=lambda q: q.get("x", 0))
+            ppl = (", ".join(f"<Subject {q['n']}> {_where(q.get('x', 0))}" for q in vis) if vis else "no one in the frame")
+            head = (f"[Shot {i + 1}] {a:.1f}-{b:.1f}s: " + ("hard cut to " if i > 0 else "")
+                    + f"{_FRAME_WORD.get(sh.get('frame'), _FRAME_WORD['waist'])} — {ppl}.")
+            body = parts_act[i] if i < len(parts_act) else ""
+            lines.append((head + " " + body).strip() + " The camera follows the guide <Video 1> for this shot.")
+        detailed = "Realistic photography with soft natural light, " + place + ".\n" + "\n".join(lines)
+    else:
+        guide = ("The camera movement, the framing and where each person stands and faces come from <Video 1>, a simple grey mannequin "
+                 "guide: each grey mannequin stands for one person. " + ("; ".join(who) + ". " if who else "")
+                 + "The guide's grey look is not shown; the people and the place look real. Faces stay the same people throughout.")
+        summ = f"One continuous shot in {place}. {guide}"
+        detailed = ("Realistic photography with soft natural light. [Shot 1] " + place[0].upper() + place[1:] + ". "
+                    + (". ".join(pos) + ". " if pos else "") + (act + " " if act else "")
+                    + "The camera follows exactly the movement of <Video 1>: its position, distance and direction change exactly as "
+                    "the guide does.")
     sound = ("The voices of the people and the natural ambience of the place." if re.search(r"<d>|says|said|speaks|talks", act, re.I)
              else "The natural ambience of the place.")
     parts = [
         "subject_definitions:\n" + ("\n".join(defs) if defs else "N/A"),
-        f"summary:\n[reference generation] One continuous shot in {place}. {guide}",
-        "retention_analysis:\n<Video 1> (appears in [Shot 1]): weak_reference - only the camera motion, the framing and the positions, "
-        "sizes and facing of the mannequins are used; the mannequins are replaced by the real people.\n" + "\n".join(keep),
-        "detailed_description:\nRealistic photography with soft natural light. [Shot 1] " + place[0].upper() + place[1:] + ". "
-        + (". ".join(pos) + ". " if pos else "") + (act + " " if act else "")
-        + "The camera follows exactly the movement of <Video 1>: its position, distance and direction change exactly as the guide does.",
+        f"summary:\n[reference generation] {summ}",
+        f"retention_analysis:\n<Video 1> (appears in {shot_tags}): weak_reference - only the camera motion, the framing"
+        + (", the cuts" if multi else "") + " and the positions, sizes and facing of the mannequins are used; the mannequins are "
+        "replaced by the real people.\n" + "\n".join(keep),
+        "detailed_description:\n" + detailed,
         f"overall_soundscape:\n{sound}",
         "non_diegetic_music:\nN/A",
     ]
@@ -776,15 +848,29 @@ function camFromVec(v) {
   const tgt = [v[0], v[1], v[2]];
   return { tgt, pos: [tgt[0] + r * Math.cos(el) * Math.sin(az), tgt[1] + r * Math.sin(el), tgt[2] + r * Math.cos(el) * Math.cos(az)], lens: v[6] };
 }
-function camKeysV() {
+// 0.4.0 ショット（カットで割った区間）。カメラはショットの中のキーだけで補間する（カットをまたがない）
+function cutsOf() { return (S.cuts || []).filter((c) => c > 0 && c < S.dur).sort((a, b) => a - b); }
+function shotRange(t) {
+  const cs = cutsOf(); let a = 0, b = S.dur;
+  for (const c of cs) { if (c <= t + 1e-6) a = c; else { b = c; break; } }
+  return [a, b];
+}
+function camKeysV(t) {
+  let keys = S.cam.keys;
+  if (t !== undefined && (S.cuts || []).length) {
+    const [a, b] = shotRange(t);
+    const inShot = keys.filter((k) => k.t >= a - 1e-6 && k.t < b - 1e-6);
+    if (inShot.length) keys = inShot;
+    else { const before = keys.filter((k) => k.t < a - 1e-6); keys = before.length ? [before[before.length - 1]] : []; }
+  }
   let prev = null;
-  return S.cam.keys.map((k) => { const v = camVec(k); if (prev) v[4] = unwrap(v[4], prev[4]); prev = v; return { t: k.t, v }; });
+  return keys.map((k) => { const v = camVec(k); if (prev) v[4] = unwrap(v[4], prev[4]); prev = v; return { t: k.t, v }; });
 }
 function personKeysV(p) {
   let prev = null;
   return p.keys.map((k) => { const v = [k.x, k.z, k.ry]; if (prev) v[2] = unwrap(v[2], prev[2]); prev = v; return { t: k.t, v }; });
 }
-function camAt(t) { const v = sample(camKeysV(), t, S.ease); return v ? camFromVec(v) : { pos: S.cam.pos, tgt: S.cam.tgt, lens: S.cam.lens }; }
+function camAt(t) { const v = sample(camKeysV(t), t, S.ease); return v ? camFromVec(v) : { pos: S.cam.pos, tgt: S.cam.tgt, lens: S.cam.lens }; }
 function personAt(p, t) { const v = sample(personKeysV(p), t, S.ease); return v ? { x: v[0], z: v[1], ry: v[2] } : { x: p.x, z: p.z, ry: p.ry }; }
 function setKey(list, t, val) {
   t = snapT(t);
@@ -800,6 +886,7 @@ function applyTime(t) {
   const c = camAt(t);
   shot.position.fromArray(c.pos); shot.lookAt(new THREE.Vector3().fromArray(c.tgt));
   shot.aspect = shotAspect; shot.setFocalLength(c.lens); shot.updateProjectionMatrix();
+  shot.updateMatrixWorld(true);              // 0.4.0 測るとき（描く前）に古い行列で投影しないように
   camBody.position.copy(shot.position); camBody.quaternion.copy(shot.quaternion);
   tgtMark.position.fromArray(c.tgt);
   if (!draggingCam) orbitShot.target.fromArray(c.tgt);
@@ -980,6 +1067,16 @@ function buildRows() {
     const i = document.createElement('i'); i.textContent = s + 's'; k.appendChild(i); ticks.appendChild(k);
   }
   rowsEl.appendChild(ticks);
+  const cs = cutsOf();
+  if (cs.length) {                          // 0.4.0 カットの線（全部の段をまたぐ）とショットの番号
+    const lay = document.createElement('div'); lay.className = 'c3d-cuts';
+    [0].concat(cs).forEach((c, i) => {
+      if (i > 0) { const l = document.createElement('div'); l.className = 'c3d-cut'; l.style.left = (c / S.dur * 100) + '%'; l.title = '✂ ' + c.toFixed(2) + ' s'; lay.appendChild(l); }
+      const lb = document.createElement('b'); lb.className = 'c3d-shot'; lb.textContent = 'S' + (i + 1);
+      lb.style.left = (c / S.dur * 100) + '%'; lay.appendChild(lb);
+    });
+    rowsEl.appendChild(lay);
+  }
   for (const r of rows) {
     const n = document.createElement('div'); n.className = 'c3d-name' + (S.sel === r.id ? ' c3d-on' : ''); n.textContent = r.name;
     n.addEventListener('click', () => select(r.id)); namesEl.appendChild(n);
@@ -1162,7 +1259,7 @@ host.querySelector('.c3d-fit').addEventListener('click', () => { fitFromImage().
 const api = {
   set(o) {
     o = o || {};
-    if ('dur' in o) { S.dur = Math.max(1, Math.min(15, +o.dur || 5)); S.t = Math.min(S.t, S.dur); }
+    if ('dur' in o) { S.dur = Math.max(1, Math.min(15, +o.dur || 5)); S.t = Math.min(S.t, S.dur); S.cuts = (S.cuts || []).filter((c) => c < S.dur); }
     if ('aspect' in o && ASPECTS[o.aspect]) { S.aspect = o.aspect; const a = ASPECTS[S.aspect]; shotAspect = a[0] / a[1]; }
     if ('ease' in o) S.ease = o.ease;
     buildRows(); setTime(S.t);
@@ -1196,6 +1293,29 @@ const api = {
     S.sel = 'cam'; keyNow('cam'); setTime(S.t, true); buildRows();
   },
   keySelected() { keyNow(S.sel); },
+  addCut() {                                // 再生位置でショットを割る
+    const t = snapT(S.t);
+    if (t <= 1 / FPS || t >= S.dur - 1 / FPS) return;
+    S.cuts = S.cuts || [];
+    if (S.cuts.some((c) => Math.abs(c - t) < KEY_EPS)) return;
+    // 前のショットの動きを保つ（カットの 1 コマ前にキー）＋新しいショットはカットの時刻のカメラから
+    const before = camAt(t - 1 / FPS), at = camAt(t);
+    S.cuts.push(t); S.cuts.sort((a, b) => a - b);
+    if (S.cam.keys.length) {
+      setKey(S.cam.keys, t - 1 / FPS, before);
+      setKey(S.cam.keys, t, at);
+    } else {
+      setKey(S.cam.keys, 0, { pos: S.cam.pos, tgt: S.cam.tgt, lens: S.cam.lens });
+      setKey(S.cam.keys, t, at);
+    }
+    select('cam'); buildRows(); setTime(t);
+  },
+  removeCut() {                             // 再生位置にいちばん近いカットを消す（1 秒以内）
+    const cs = S.cuts || []; if (!cs.length) return;
+    let bi = -1, bd = 1.0;
+    cs.forEach((c, i) => { const d = Math.abs(c - S.t); if (d < bd) { bd = d; bi = i; } });
+    if (bi >= 0) { cs.splice(bi, 1); buildRows(); setTime(S.t); }
+  },
   bgPath() { return S.bgPath || ''; },
   deleteKey() {
     const tr = trackOf(S.sel); if (!tr) return;
@@ -1213,18 +1333,41 @@ const api = {
     if (a[0] >= a[1]) { H = G; W = Math.round(G * a[0] / a[1] / 2) * 2; } else { W = G; H = Math.round(G * a[1] / a[0] / 2) * 2; }
     const n = Math.max(22, Math.min(__MAX_FRAMES__, Math.round((S.dur * FPS - 5) / 17) * 17 + 5));
     // 0.2.0 人の頭が画面のどこにあるか（最初と最後のコマ）。プロンプトの「左の人」などに使う
+    // 0.4.0 ショットごとに真ん中のコマで構図（どこまで映るか）と映っている人も測る
     const keepAspect0 = shotAspect; shotAspect = W / H;
     const screen = {};
+    const proj = (b) => { const v = new THREE.Vector3(); b.getWorldPosition(v); v.project(shot); return v; };
+    const inF = (v) => v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
     for (const tt of [0, S.dur]) {
       applyTime(tt);
       S.people.forEach((p) => {
         const rt = RT.get(p.id); if (!rt) return;
-        const v = new THREE.Vector3(); (rt.bones.Head || rt.wrap).getWorldPosition(v); v.project(shot);
-        (screen[p.id] = screen[p.id] || []).push([+v.x.toFixed(3), +v.y.toFixed(3), v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1]);
+        const v = proj(rt.bones.Head || rt.wrap);
+        (screen[p.id] = screen[p.id] || []).push([+v.x.toFixed(3), +v.y.toFixed(3), inF(v)]);
       });
     }
+    const bounds = [0].concat(cutsOf(), [S.dur]);
+    const shots = [];
+    for (let i = 0; i + 1 < bounds.length; i++) {
+      const a = bounds[i], b = bounds[i + 1];
+      applyTime((a + b) / 2);
+      const who = [];
+      let frame = 'wide';
+      const order = ['face', 'chest', 'waist', 'knee', 'full'];
+      S.people.forEach((p, k) => {
+        const rt = RT.get(p.id); if (!rt) return;
+        const B = rt.bones, h = B.Head ? proj(B.Head) : null;
+        if (!h || !inF(h)) return;
+        const lo = (n) => (B[n] ? proj(B[n]).y >= -1 : false);   // その骨が画面の下の端より上にあるか
+        const f = (B.ball_l && lo('ball_l')) ? 'full' : (B.calf_l && lo('calf_l')) ? 'knee' : (B.pelvis && lo('pelvis')) ? 'waist'
+          : (B.spine_03 && lo('spine_03')) ? 'chest' : 'face';
+        who.push({ n: k + 1, x: +h.x.toFixed(3), frame: f });
+        if (frame === 'wide' || order.indexOf(f) < order.indexOf(frame)) frame = f;   // いちばん寄っている人に合わせる
+      });
+      shots.push({ a: +a.toFixed(3), b: +b.toFixed(3), frame, who });
+    }
     shotAspect = keepAspect0;
-    const sc0 = serialize(); sc0.screen = screen; sc0.grays = S.people.map((p, i) => grayOf(i));
+    const sc0 = serialize(); sc0.screen = screen; sc0.grays = S.people.map((p, i) => grayOf(i)); sc0.shots = shots;
     const job = await server.c3d_begin({ w: W, h: H, n, scene: sc0 });
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const r2 = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: true });
@@ -1305,7 +1448,8 @@ _MIRROR = {                                                       # SEGMENTS の
     "#seg-left": ["#c3d-left"], "#seg-right": ["#c3d-right"],
     "#seg-preview-box": ["#c3d-view-box", "#c3d-out-box", "#c3d-res-box"],
     "#seg-act": ["#c3d-scene", "#c3d-obj", "#c3d-gen"],
-    "#seg-concat-btn": ["#c3d-add-f", "#c3d-add-m", "#c3d-del", "#c3d-key", "#c3d-unkey", "#c3d-export", "#c3d-run-btn"],
+    "#seg-concat-btn": ["#c3d-add-f", "#c3d-add-m", "#c3d-del", "#c3d-key", "#c3d-unkey", "#c3d-export", "#c3d-run-btn",
+                        "#c3d-cut", "#c3d-uncut"],
     "#seg-len": ["#c3d-dur", "#c3d-lens"],
     "#status-panel": ["#c3d-status"], "#lora-dd": ["#c3d-aspect", "#c3d-ease", "#c3d-pose", "#c3d-mode"],
     "#seg-note": ["#c3d-note"],
@@ -1325,8 +1469,8 @@ CSS_EXTRA = """
 #c3d-place textarea, #c3d-place input, #c3d-action textarea, #c3d-seed input { color: var(--h3-text3) !important; font-size: 13px !important; letter-spacing: 0 !important; }
 #c3d-gen { margin-left: 12px !important; margin-right: 12px !important; width: calc(100% - 24px) !important; min-width: 0 !important; flex-grow: 0 !important; }
 #c3d-status { margin-left: 12px !important; margin-right: 12px !important; width: calc(100% - 24px) !important; min-width: 0 !important; flex-grow: 0 !important; }
-#c3d-btns, #c3d-keys { gap: 8px !important; flex-wrap: nowrap !important; }
-#c3d-btns > *, #c3d-keys > * { min-width: 0 !important; }
+#c3d-btns, #c3d-keys, #c3d-cutrow { gap: 8px !important; flex-wrap: nowrap !important; }
+#c3d-btns > *, #c3d-keys > *, #c3d-cutrow > * { min-width: 0 !important; }
 #c3d-view-box { padding-top: 10px !important; }
 /* 編集画面（three.js）。枠と角は Keyframe のプレビューとタイムライン（#kf-preview・#kf-list）に合わせる */
 #c3d-editor .c3d-root { display: flex; flex-direction: column; gap: 8px; }
@@ -1366,6 +1510,10 @@ CSS_EXTRA = """
 #c3d-editor .c3d-key { position: absolute; top: 50%; width: 9px; height: 9px; margin: -5px 0 0 -5px; transform: rotate(45deg);
     background: var(--h3-border3); border: 1px solid var(--h3-muted); box-sizing: border-box; cursor: pointer; }
 #c3d-editor .c3d-row.c3d-on .c3d-key { background: var(--h3-accent); border-color: var(--h3-accent-2); }
+#c3d-editor .c3d-cuts { position: absolute; inset: 0; pointer-events: none; }
+#c3d-editor .c3d-cut { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--h3-danger-bg); margin-left: -1px; }
+/* ショットの番号は下の端（上の端は秒の目盛りの数字） */
+#c3d-editor .c3d-shot { position: absolute; bottom: 2px; margin-left: 4px; font-weight: 400; font-size: 10px; color: var(--h3-danger-text); }
 #c3d-editor .c3d-tl-head-line { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--h3-accent);
     margin-left: -1px; pointer-events: none; }
 """
@@ -1383,7 +1531,9 @@ HELP_C3D = ("3D の場に人（マネキン）とカメラを置き、時刻ご�
             "動きの欄に subject_definitions: から始まる全文を書けば、そのまま使います。Turbo・Steps は CREATE の今の設定です。\n"
             "「🖼 画像」でキーフレームの画像を読むと、カメラの表示に下敷きとして重なります（「下敷き」で濃さを切り替え）。"
             "「👤 画像から配置」は画像の人を認識して、人数・立ち位置・向き・姿勢とカメラの位置・高さ・俯きを今の時刻に置きます（おおまかなので下敷きを見て仕上げます）。"
-            "生成の「画像を最初のコマにする」を ON にすると、その画像から始まります")
+            "生成の「画像を最初のコマにする」を ON にすると、その画像から始まります。\n"
+            "「✂ カット」は再生位置でショットを割ります（カメラはカットをまたいで動かず、新しいショットはカットの時刻のカメラから始まる。人の立ち位置は続く）。"
+            "生成では動き・セリフの時刻つきの文をカットの時刻で [Shot N] に分け、各ショットの構図（全身・膝上・胸上など）を足してハードカットにします")
 
 I18N.update({
     HELP_C3D: {
@@ -1394,19 +1544,19 @@ I18N.update({
               "(Gizmo = Rotate turns them); in the “Camera” view drag to orbit, right-drag to pan and use the wheel to dolly. "
               "Move the playhead first, then move a person or the camera to set a key at that time (anything with no keys stays still).\n"
               "Acting is not animated here — write it in the generation prompt. Guides are exported at 24 fps, 17n+5 frames, short side 480, "
-              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings. \n“🖼 Image” loads a keyframe image as an overlay in the Camera view (“Overlay” changes its opacity). “👤 Place from image” detects the people in it and sets the number of people, their positions, facing and poses and the camera position, height and tilt at the current time (rough — finish it against the overlay). Turn on “Use the image as the first frame” to start the generation from that image.",
+              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings. \n“🖼 Image” loads a keyframe image as an overlay in the Camera view (“Overlay” changes its opacity). “👤 Place from image” detects the people in it and sets the number of people, their positions, facing and poses and the camera position, height and tilt at the current time (rough — finish it against the overlay). Turn on “Use the image as the first frame” to start the generation from that image. \n“✂ Cut” splits the shot at the playhead (the camera does not move across a cut; a new shot starts from the camera at the cut time; people keep their positions). When generating, the timed actions / lines are split into [Shot N] at the cut times, each shot gets its framing (full, knees-up, chest-up…) and the shots are joined by hard cuts.",
         "zh": "在 3D 场景中放置人物（人体模型）和摄像机，用关键帧决定每个时刻的站位、朝向和摄像机位置，并导出灰色的引导视频。"
               "把引导视频作为 R2V 的视频参考，人物的位置、姿势、构图和摄像机运动会跟随引导（单元 196・197）。\n"
               "用「＋ 女性」「＋ 男性」添加人物，在画面中点击选择。在「全景」视图中拖动箭头移动（操作＝旋转可改变朝向），"
               "在「摄像机」视图中拖动环绕、右键拖动平移、滚轮推拉。先移动时间，再移动人物或摄像机，就会在该时刻设置关键帧（没有关键帧的对象保持不动）。\n"
-              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。\n「🖼 图像」读取关键帧图像，在摄像机视图中作为底图叠加（「底图」切换浓淡）。「👤 按图像摆放」识别图中的人物，在当前时刻设置人数・站位・朝向・姿势以及摄像机的位置・高度・俯角（比较粗略，请对照底图调整）。打开「把图像作为第一帧」后，生成会从该图像开始。",
+              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。\n「🖼 图像」读取关键帧图像，在摄像机视图中作为底图叠加（「底图」切换浓淡）。「👤 按图像摆放」识别图中的人物，在当前时刻设置人数・站位・朝向・姿势以及摄像机的位置・高度・俯角（比较粗略，请对照底图调整）。打开「把图像作为第一帧」后，生成会从该图像开始。\n「✂ 剪切」在播放位置切分镜头（摄像机不会跨剪切移动，新镜头从剪切时刻的摄像机开始；人物站位延续）。生成时会把带时间的动作・台词按剪切时刻分成 [Shot N]，为每个镜头加上构图（全身・膝上・胸上等），并以硬切连接。",
         "ko": "3D 공간에 인물(마네킹)과 카메라를 놓고, 시간마다 서는 위치·방향·카메라 위치를 키프레임으로 정해 회색 가이드 영상을 내보냅니다. "
               "가이드를 R2V 의 영상 참조로 쓰면 인물의 위치·자세·구도·카메라 움직임이 가이드를 따라옵니다(셀 196・197).\n"
               "「＋ 여성」「＋ 남성」으로 인물을 추가하고 화면에서 눌러 선택합니다. 「전체」 보기에서는 화살표로 움직이고(조작＝회전으로 방향 변경), "
               "「카메라」 보기에서는 드래그로 돌아가기·오른쪽 드래그로 평행 이동·휠로 다가가기/물러나기를 합니다. "
               "시간을 먼저 옮긴 뒤 인물이나 카메라를 움직이면 그 시간에 키가 들어갑니다(키가 하나도 없는 것은 멈춘 채로).\n"
               "움직임(연기)은 여기서 만들지 않고 생성 프롬프트에 씁니다. 가이드는 24fps・17n+5 프레임・짧은 변 480 으로 /content/camera3d/ 에 내보냅니다"
-              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다.\n「🖼 이미지」로 키프레임 이미지를 불러오면 카메라 보기에 밑그림으로 겹칩니다(「밑그림」으로 농도 전환). 「👤 이미지에서 배치」는 이미지 속 인물을 인식해 인원・서는 위치・방향・자세와 카메라의 위치・높이・부감을 현재 시간에 둡니다(대략적이므로 밑그림을 보며 다듬습니다). 생성의 「이미지를 첫 프레임으로 사용」을 켜면 그 이미지에서 시작합니다."},
+              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다.\n「🖼 이미지」로 키프레임 이미지를 불러오면 카메라 보기에 밑그림으로 겹칩니다(「밑그림」으로 농도 전환). 「👤 이미지에서 배치」는 이미지 속 인물을 인식해 인원・서는 위치・방향・자세와 카메라의 위치・높이・부감을 현재 시간에 둡니다(대략적이므로 밑그림을 보며 다듬습니다). 생성의 「이미지를 첫 프레임으로 사용」을 켜면 그 이미지에서 시작합니다.\n「✂ 컷」은 재생 위치에서 샷을 나눕니다(카메라는 컷을 넘어 움직이지 않고, 새 샷은 컷 시점의 카메라에서 시작. 인물 위치는 이어짐). 생성할 때 시간이 붙은 움직임・대사를 컷 시점에서 [Shot N]으로 나누고 각 샷의 구도(전신・무릎 위・가슴 위 등)를 더해 하드 컷으로 잇습니다."},
 })
 
 
@@ -1500,6 +1650,9 @@ def build_slot(ctx, slot):
                     with gr.Row(elem_id="c3d-keys"):
                         _UI["key"] = gr.Button("◆ キーを打つ", elem_id="c3d-key")
                         _UI["unkey"] = gr.Button("◇ キーを消す", elem_id="c3d-unkey")
+                    with gr.Row(elem_id="c3d-cutrow"):
+                        _UI["cut"] = gr.Button("✂ カット", elem_id="c3d-cut")
+                        _UI["uncut"] = gr.Button("カットを消す", elem_id="c3d-uncut")
                 with gr.Column(elem_classes=["panel"], elem_id="c3d-status"):
                     _UI["msg"] = gr.Textbox(label="STATUS", lines=4, max_lines=int(g.get("STATUS_MAX_LINES", 200)),
                                             interactive=False, value="")
@@ -1536,6 +1689,8 @@ def _wire():
     u["lens"].input(None, inputs=[u["lens"]], js=_call_js("window.__c3d.setLens(a[0]);"))
     u["key"].click(None, js=_call_js("window.__c3d.keySelected();"))
     u["unkey"].click(None, js=_call_js("window.__c3d.deleteKey();"))
+    u["cut"].click(None, js=_call_js("window.__c3d.addCut();"))
+    u["uncut"].click(None, js=_call_js("window.__c3d.removeCut();"))
     u["bridge"].change(_on_bridge, inputs=[u["bridge"]], outputs=[u["dur"], u["aspect"], u["ease"], u["pose"], u["lens"]], queue=False, show_progress="hidden")
     u["export"].click(_after_export, inputs=[u["res"]], outputs=[u["out"], u["msg"]], js=EXPORT_JS, show_progress="minimal")
     u["rms"].focus(lambda v: _ST["ctx"].gr.update(choices=_refmod_choices(), value=v), inputs=[u["rms"]], outputs=[u["rms"]],
