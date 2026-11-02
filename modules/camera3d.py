@@ -40,6 +40,9 @@
 0.4.3: 0.4.2 のログで、止まっていたのは export_to_video（diffusers → imageio-ffmpeg）の中と分かった（コマは PIL の並び 124 枚、
        3 分たっても mp4 ができない）。imageio を通さず、ガイドの書き出しと同じく本体の ffmpeg（_ffmpeg_exe）へ生のコマを流して
        libx264 で書く（stderr はパイプにしない＝詰まりようがない形、タイムアウト 10 分）
+0.4.4: 利用者の 1 本目（カット入り）で人の定義が崩れていた: 「<Subject 2> is the person in the person shown in <Picture 1>: the person shown
+       in <Picture 1>: …」（`<RefMod N>: @character N` を本体が二重に展開）。refmod_tools の書き方どおり `<Subject N> is @character N.`
+       （説明が無ければ `<Subject N> is <RefMod N>.`）にする。画面の端に立つ人は「near the left/right edge of the frame」と書く
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -53,7 +56,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.3"
+VERSION = "0.4.4"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -345,6 +348,10 @@ def _on_bridge(s):
 # ------------------------------------------------------------------
 def _where(x):
     """画面の横位置（−1〜1）→ 言葉"""
+    if x < -0.55:
+        return "near the left edge of the frame"
+    if x > 0.55:
+        return "near the right edge of the frame"
     return "on the left" if x < -0.12 else ("on the right" if x > 0.12 else "in the center")   # 二人が ±0.26 前後に立つ構図でも左右を言える幅
 
 
@@ -416,7 +423,7 @@ def compose_prompt(scene, rms, place, action):
         n = i + 1
         rm = rms[i] if i < len(rms) else None
         if rm:
-            defs.append(f"<Subject {n}> is the person in <RefMod {n}>" + (f": @character {n}." if _desc_of(rm) else "."))
+            defs.append(f"<Subject {n}> is @character {n}." if _desc_of(rm) else f"<Subject {n}> is <RefMod {n}>.")   # 0.4.4 本体の展開が「the person shown in <…>: 見た目」にする
         else:
             defs.append(f"<Subject {n}> is a {'man' if p.get('kind') == 'm' else 'woman'} with a natural, realistic look.")
         sc = scr.get(p.get("id")) or []
