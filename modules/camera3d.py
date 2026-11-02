@@ -53,6 +53,10 @@
        カットより前と判定されて両方とも [Shot 1] に入り、[Shot 2] は動きなし（セル202 の C1 はショットごとに文があってカットした）。
        → 動きの文の始まりがカットの 0.3 秒前〜後ならカットの後のショットへ振り分け、カットの ±0.3 秒の時刻は前倒しのカットの時刻へ寄せる。
        動きの無いショットには「They keep talking quietly.」を入れてショットを空にしない
+0.5.0: 利用者要望「設定を保存できるようにしてほしい」。gradio.live の URL は起動のたびに変わる＝ブラウザの控え（localStorage）は
+       次の起動で読めない。→ シーン（人・カメラ・キー・カット・長さ・縦横比など。下敷きの画像は除く）と生成の箱（RefMod・場所・動き・Seed・
+       最初のコマ）を本体の設定ファイル（_UI_STATE["camera3d"]＝ui_state.json。Drive に置いていれば起動をまたいで残る）にも書く。
+       開いたときはブラウザの控えと設定ファイルの新しい方を使う（保存の時刻で比べる）。生成の箱は作るときに保存した値を入れる
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -66,7 +70,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.6"
+VERSION = "0.5.0"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -233,6 +237,64 @@ def c3d_mesh(kind):
         return base64.b64encode(f.read()).decode("ascii")
 
 
+def _store():
+    g = _g()
+    st = g.get("_UI_STATE")
+    if not isinstance(st, dict):
+        return None
+    return st.setdefault("camera3d", {})
+
+
+def _store_write():
+    g = _g()
+    try:
+        g["_UI_STATE"]["version"] = g.get("UI_STATE_VERSION", g["_UI_STATE"].get("version"))
+        g["_write_ui_state"]()
+    except Exception:                                             # noqa: BLE001
+        pass
+
+
+def c3d_save_scene(payload):
+    """0.5.0 シーンを設定ファイルへ（{scene, ts}）。下敷きの画像（大きい・起動をまたぐと使えないパス）は入れない"""
+    d = _store()
+    if d is None:
+        return False
+    p = dict(payload or {})
+    sc = dict(p.get("scene") or {})
+    for k in ("bg", "bgPath", "playing"):
+        sc.pop(k, None)
+    d["scene"] = sc
+    d["ts"] = float(p.get("ts") or 0)
+    _store_write()
+    return True
+
+
+def c3d_load_scene(_=None):
+    """0.5.0 設定ファイルのシーン → {scene, ts}（無ければ空）"""
+    d = _store() or {}
+    return {"scene": d.get("scene"), "ts": float(d.get("ts") or 0)} if d.get("scene") else {}
+
+
+def _save_gen(rms, place, action, seed, usekf):
+    d = _store()
+    if d is None:
+        return
+    try:
+        sd = int(seed)
+    except (TypeError, ValueError):
+        sd = -1
+    d["gen"] = {"rms": [str(x) for x in (rms or [])], "place": str(place or ""), "action": str(action or ""), "seed": sd,
+                "usekf": bool(usekf)}
+    _store_write()
+
+
+def _gen_saved():
+    try:
+        return dict((_store() or {}).get("gen") or {})
+    except Exception:                                             # noqa: BLE001
+        return {}
+
+
 def c3d_texts(_=None):
     """編集画面の文言の、今の言語の訳（server_functions は引数を 1 つ受ける。ブラウザで 2 つ以上渡すと並びになる）"""
     return {k: _T(k) for k in JS_TEXT_KEYS}
@@ -386,9 +448,22 @@ _FRAME_WORD = {"full": "a full shot showing them head to toe", "knee": "a medium
 _TIME_RE = re.compile(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*s\s*:")
 
 
+_SHOT_RE = re.compile(r"(?:^|\s)\[?(?:S|Shot)\s*(\d+)\]?\s*[:：]", re.I)
+
+
 def _split_by_shots(act, shots):
-    """時刻つきの文（"0-2s: …"）をショットへ振り分ける → [文, …]（ショットの数だけ）。時刻の無い頭の文は 1 つ目のショットへ"""
+    """時刻つきの文（"0-2s: …"）をショットへ振り分ける → [文, …]（ショットの数だけ）。時刻の無い頭の文は 1 つ目のショットへ。
+    0.5.0 「S1: …」「S2: …」（[Shot 2]: も可）とショットごとに書いてあれば、時刻ではなくその印で分ける（利用者の提案）"""
     out = [[] for _ in shots]
+    ms = list(_SHOT_RE.finditer(act))
+    if ms:
+        if act[:ms[0].start()].strip():
+            out[0].append(act[:ms[0].start()].strip())
+        for i, mm in enumerate(ms):
+            k = min(len(shots), max(1, int(mm.group(1)))) - 1
+            en = ms[i + 1].start() if i + 1 < len(ms) else len(act)
+            out[k].append(act[mm.end():en].strip())
+        return [" ".join(x) for x in out]
     pos = [(m.start(), float(m.group(1))) for m in _TIME_RE.finditer(act)]
     if not pos:
         if act:
@@ -772,12 +847,25 @@ function freshScene() {
       { id: 'p2', kind: 'm', pose: 'stand', x: 0.55, z: 0, ry: -0.25, keys: [] }] };
 }
 try { const s = JSON.parse(localStorage.getItem(STORE) || 'null'); if (s && s.v === 1 && s.cam && Array.isArray(s.people)) S = s; } catch (e) { }
+// 0.5.0 設定ファイル（起動をまたいで残る）の方が新しければそちらを使う（下敷きの画像はブラウザの控えにだけある）
+try {
+  const r = await server.c3d_load_scene(0);
+  const rs = r && r.scene;
+  if (rs && rs.v === 1 && rs.cam && Array.isArray(rs.people) && (+r.ts || 0) > (+(S && S.ts) || 0)) {
+    const keepBg = S ? { bg: S.bg, bgW: S.bgW, bgH: S.bgH, bgOp: S.bgOp } : {};
+    S = Object.assign(rs, keepBg); S.ts = +r.ts;
+  }
+} catch (e) { }
 if (!S) S = freshScene();
 S.playing = false;
 let saveTimer = 0;
+let srvTimer = 0;
 function save() {
+  S.ts = Date.now();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(serialize())); } catch (e) { } }, 300);
+  clearTimeout(srvTimer);                   // 0.5.0 設定ファイルへは少し間を置いて（ドラッグ中に何度も書かない）
+  srvTimer = setTimeout(() => { try { server.c3d_save_scene({ scene: serialize(), ts: S.ts }); } catch (e) { } }, 1500);
 }
 function serialize() {
   const o = JSON.parse(JSON.stringify(S)); delete o.playing; return o;
@@ -1613,7 +1701,8 @@ HELP_C3D = ("3D の場に人（マネキン）とカメラを置き、時刻ご�
             "「👤 画像から配置」は画像の人を認識して、人数・立ち位置・向き・姿勢とカメラの位置・高さ・俯きを今の時刻に置きます（おおまかなので下敷きを見て仕上げます）。"
             "生成の「画像を最初のコマにする」を ON にすると、その画像から始まります。\n"
             "「✂ カット」は再生位置でショットを割ります（カメラはカットをまたいで動かず、新しいショットはカットの時刻のカメラから始まる。人の立ち位置は続く）。"
-            "生成では動き・セリフの時刻つきの文をカットの時刻で [Shot N] に分け、各ショットの構図（全身・膝上・胸上など）を足してハードカットにします")
+            "生成では動き・セリフの時刻つきの文をカットの時刻で [Shot N] に分け、各ショットの構図（全身・膝上・胸上など）を足してハードカットにします。"
+            "時刻の代わりに「S1: …　S2: …」とショットごとに書いても分けられます")
 
 I18N.update({
     HELP_C3D: {
@@ -1624,19 +1713,19 @@ I18N.update({
               "(Gizmo = Rotate turns them); in the “Camera” view drag to orbit, right-drag to pan and use the wheel to dolly. "
               "Move the playhead first, then move a person or the camera to set a key at that time (anything with no keys stays still).\n"
               "Acting is not animated here — write it in the generation prompt. Guides are exported at 24 fps, 17n+5 frames, short side 480, "
-              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings. \n“🖼 Image” loads a keyframe image as an overlay in the Camera view (“Overlay” changes its opacity). “👤 Place from image” detects the people in it and sets the number of people, their positions, facing and poses and the camera position, height and tilt at the current time (rough — finish it against the overlay). Turn on “Use the image as the first frame” to start the generation from that image. \n“✂ Cut” splits the shot at the playhead (the camera does not move across a cut; a new shot starts from the camera at the cut time; people keep their positions). When generating, the timed actions / lines are split into [Shot N] at the cut times, each shot gets its framing (full, knees-up, chest-up…) and the shots are joined by hard cuts.",
+              "to /content/camera3d/ (with the scene JSON next to them).\n“🎬 Generate” exports the guide and passes it to R2V as <Video 1> (read at short side 256: faster and more faithful to the guide). Pick the people's RefMods in person order (person 1 → <Subject 1>); RefMods with an appearance description bring it along. Write the place and the timed actions / lines, and the six-section prompt is composed with each person's position (left / center / right of the frame). A full prompt starting with subject_definitions: in the action box is used as is. Turbo and Steps follow the current CREATE settings. \n“🖼 Image” loads a keyframe image as an overlay in the Camera view (“Overlay” changes its opacity). “👤 Place from image” detects the people in it and sets the number of people, their positions, facing and poses and the camera position, height and tilt at the current time (rough — finish it against the overlay). Turn on “Use the image as the first frame” to start the generation from that image. \n“✂ Cut” splits the shot at the playhead (the camera does not move across a cut; a new shot starts from the camera at the cut time; people keep their positions). When generating, the timed actions / lines are split into [Shot N] at the cut times, each shot gets its framing (full, knees-up, chest-up…) and the shots are joined by hard cuts. Instead of times you can also write per shot: “S1: … S2: …”.",
         "zh": "在 3D 场景中放置人物（人体模型）和摄像机，用关键帧决定每个时刻的站位、朝向和摄像机位置，并导出灰色的引导视频。"
               "把引导视频作为 R2V 的视频参考，人物的位置、姿势、构图和摄像机运动会跟随引导（单元 196・197）。\n"
               "用「＋ 女性」「＋ 男性」添加人物，在画面中点击选择。在「全景」视图中拖动箭头移动（操作＝旋转可改变朝向），"
               "在「摄像机」视图中拖动环绕、右键拖动平移、滚轮推拉。先移动时间，再移动人物或摄像机，就会在该时刻设置关键帧（没有关键帧的对象保持不动）。\n"
-              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。\n「🖼 图像」读取关键帧图像，在摄像机视图中作为底图叠加（「底图」切换浓淡）。「👤 按图像摆放」识别图中的人物，在当前时刻设置人数・站位・朝向・姿势以及摄像机的位置・高度・俯角（比较粗略，请对照底图调整）。打开「把图像作为第一帧」后，生成会从该图像开始。\n「✂ 剪切」在播放位置切分镜头（摄像机不会跨剪切移动，新镜头从剪切时刻的摄像机开始；人物站位延续）。生成时会把带时间的动作・台词按剪切时刻分成 [Shot N]，为每个镜头加上构图（全身・膝上・胸上等），并以硬切连接。",
+              "动作（表演）不在这里制作，请写在生成的提示词里。引导视频以 24fps・17n+5 帧・短边 480 导出到 /content/camera3d/（同名的场景 JSON 放在旁边）。\n「🎬 生成」会导出引导视频并作为 <Video 1> 交给 R2V（以短边 256 读取，更快且更忠实于引导）。人物的 RefMod 按人物编号顺序选择（第 1 人→<Subject 1>）；带外貌描述的 RefMod 会一并加入。写上地点和带时间的动作・台词，就会加上每个人的站位（画面左・中・右）组成 6 节提示词。动作栏写以 subject_definitions: 开头的完整提示词时直接使用。Turbo・Steps 使用 CREATE 当前的设置。\n「🖼 图像」读取关键帧图像，在摄像机视图中作为底图叠加（「底图」切换浓淡）。「👤 按图像摆放」识别图中的人物，在当前时刻设置人数・站位・朝向・姿势以及摄像机的位置・高度・俯角（比较粗略，请对照底图调整）。打开「把图像作为第一帧」后，生成会从该图像开始。\n「✂ 剪切」在播放位置切分镜头（摄像机不会跨剪切移动，新镜头从剪切时刻的摄像机开始；人物站位延续）。生成时会把带时间的动作・台词按剪切时刻分成 [Shot N]，为每个镜头加上构图（全身・膝上・胸上等），并以硬切连接。也可以不写时间，而是按镜头写成「S1: … S2: …」。",
         "ko": "3D 공간에 인물(마네킹)과 카메라를 놓고, 시간마다 서는 위치·방향·카메라 위치를 키프레임으로 정해 회색 가이드 영상을 내보냅니다. "
               "가이드를 R2V 의 영상 참조로 쓰면 인물의 위치·자세·구도·카메라 움직임이 가이드를 따라옵니다(셀 196・197).\n"
               "「＋ 여성」「＋ 남성」으로 인물을 추가하고 화면에서 눌러 선택합니다. 「전체」 보기에서는 화살표로 움직이고(조작＝회전으로 방향 변경), "
               "「카메라」 보기에서는 드래그로 돌아가기·오른쪽 드래그로 평행 이동·휠로 다가가기/물러나기를 합니다. "
               "시간을 먼저 옮긴 뒤 인물이나 카메라를 움직이면 그 시간에 키가 들어갑니다(키가 하나도 없는 것은 멈춘 채로).\n"
               "움직임(연기)은 여기서 만들지 않고 생성 프롬프트에 씁니다. 가이드는 24fps・17n+5 프레임・짧은 변 480 으로 /content/camera3d/ 에 내보냅니다"
-              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다.\n「🖼 이미지」로 키프레임 이미지를 불러오면 카메라 보기에 밑그림으로 겹칩니다(「밑그림」으로 농도 전환). 「👤 이미지에서 배치」는 이미지 속 인물을 인식해 인원・서는 위치・방향・자세와 카메라의 위치・높이・부감을 현재 시간에 둡니다(대략적이므로 밑그림을 보며 다듬습니다). 생성의 「이미지를 첫 프레임으로 사용」을 켜면 그 이미지에서 시작합니다.\n「✂ 컷」은 재생 위치에서 샷을 나눕니다(카메라는 컷을 넘어 움직이지 않고, 새 샷은 컷 시점의 카메라에서 시작. 인물 위치는 이어짐). 생성할 때 시간이 붙은 움직임・대사를 컷 시점에서 [Shot N]으로 나누고 각 샷의 구도(전신・무릎 위・가슴 위 등)를 더해 하드 컷으로 잇습니다."},
+              "(같은 이름의 장면 JSON 도 옆에 둡니다).\n「🎬 생성」은 가이드를 내보내 R2V 에 <Video 1> 로 넘깁니다(짧은 변 256 으로 읽어 빠르고 가이드에 충실). 인물의 RefMod 는 인물 번호 순서로 고릅니다(1 번째→<Subject 1>). 외모 설명이 있는 RefMod 는 설명도 들어갑니다. 장소와 시간이 붙은 움직임・대사를 쓰면 각 인물의 위치(화면 왼쪽・가운데・오른쪽)를 더해 6 절 프롬프트를 만듭니다. 움직임 칸에 subject_definitions: 로 시작하는 전문을 쓰면 그대로 씁니다. Turbo・Steps 는 CREATE 의 현재 설정입니다.\n「🖼 이미지」로 키프레임 이미지를 불러오면 카메라 보기에 밑그림으로 겹칩니다(「밑그림」으로 농도 전환). 「👤 이미지에서 배치」는 이미지 속 인물을 인식해 인원・서는 위치・방향・자세와 카메라의 위치・높이・부감을 현재 시간에 둡니다(대략적이므로 밑그림을 보며 다듬습니다). 생성의 「이미지를 첫 프레임으로 사용」을 켜면 그 이미지에서 시작합니다.\n「✂ 컷」은 재생 위치에서 샷을 나눕니다(카메라는 컷을 넘어 움직이지 않고, 새 샷은 컷 시점의 카메라에서 시작. 인물 위치는 이어짐). 생성할 때 시간이 붙은 움직임・대사를 컷 시점에서 [Shot N]으로 나누고 각 샷의 구도(전신・무릎 위・가슴 위 등)를 더해 하드 컷으로 잇습니다.시간 대신 「S1: … S2: …」처럼 샷마다 써도 나눌 수 있습니다."},
 })
 
 
@@ -1696,16 +1785,19 @@ def build_slot(ctx, slot):
                 with gr.Column(elem_classes=["panel"], elem_id="c3d-view-box"):
                     _UI["editor"] = gr.HTML(value="", html_template=HTML_TEMPLATE, js_on_load=_js(), elem_id="c3d-editor",
                                             apply_default_css=False,
-                                            server_functions=[c3d_mesh, c3d_texts, c3d_begin, c3d_put, c3d_finish])
+                                            server_functions=[c3d_mesh, c3d_texts, c3d_begin, c3d_put, c3d_finish,
+                                                              c3d_save_scene, c3d_load_scene])
+                _gs = _gen_saved()                                # 0.5.0 保存した生成の箱の値
+                _ch = _refmod_choices()
                 with gr.Column(elem_classes=["panel"], elem_id="c3d-gen"):
-                    _UI["rms"] = gr.Dropdown(choices=_refmod_choices(), value=[], multiselect=True, label="人物の RefMod（人の番号の順）",
+                    _UI["rms"] = gr.Dropdown(choices=_ch, value=[x for x in (_gs.get("rms") or []) if x in _ch], multiselect=True, label="人物の RefMod（人の番号の順）",
                                              elem_id="c3d-rms", container=True)
-                    _UI["place"] = gr.Textbox(label="場所・背景", lines=1, elem_id="c3d-place",
+                    _UI["place"] = gr.Textbox(value=str(_gs.get("place") or ""), label="場所・背景", lines=1, elem_id="c3d-place",
                                               placeholder="例: a cozy bookstore cafe in the afternoon, wooden bookshelves along the left wall")
-                    _UI["action"] = gr.Textbox(label="動き・セリフ（時刻つき）", lines=4, elem_id="c3d-action",
+                    _UI["action"] = gr.Textbox(value=str(_gs.get("action") or ""), label="動き・セリフ（時刻つき）", lines=4, elem_id="c3d-action",
                                                placeholder="例: 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.")
-                    _UI["seed"] = gr.Number(value=-1, precision=0, label="Seed（−1 でランダム）", elem_id="c3d-seed")
-                    _UI["usekf"] = gr.Checkbox(value=False, label="画像を最初のコマにする", elem_id="c3d-usekf")
+                    _UI["seed"] = gr.Number(value=int(_gs.get("seed", -1)), precision=0, label="Seed（−1 でランダム）", elem_id="c3d-seed")
+                    _UI["usekf"] = gr.Checkbox(value=bool(_gs.get("usekf", False)), label="画像を最初のコマにする", elem_id="c3d-usekf")
                 gr.Markdown("人は「＋ 女性」「＋ 男性」で足し、画面で押して選びます。時刻を動かしてから人やカメラを動かすと、その時刻にキーが入ります"
                             "（「カメラ」の表示では、ドラッグで回り込み・右ドラッグで平行移動・ホイールで寄り引き）。動き（演技）はここでは付けず、生成のプロンプトに書きます。",
                             elem_id="c3d-note")
@@ -1775,6 +1867,11 @@ def _wire():
     u["export"].click(_after_export, inputs=[u["res"]], outputs=[u["out"], u["msg"]], js=EXPORT_JS, show_progress="minimal")
     u["rms"].focus(lambda v: _ST["ctx"].gr.update(choices=_refmod_choices(), value=v), inputs=[u["rms"]], outputs=[u["rms"]],
                    queue=False, show_progress="hidden")
+    _gin = [u["rms"], u["place"], u["action"], u["seed"], u["usekf"]]      # 0.5.0 生成の箱は変えるたびに設定ファイルへ
+    for _c in (u["rms"], u["seed"], u["usekf"]):
+        _c.change(_save_gen, inputs=_gin, outputs=None, queue=False, show_progress="hidden")
+    for _c in (u["place"], u["action"]):                                  # 文字の欄は打つたびではなく離れたとき
+        _c.blur(_save_gen, inputs=_gin, outputs=None, queue=False, show_progress="hidden")
     u["gen"].click(c3d_generate, inputs=[u["res"], u["rms"], u["place"], u["action"], u["seed"], u["usekf"], u["kf"]],
                    outputs=[u["msg"], u["result"]],
                    js=GEN_JS, concurrency_id="generate", concurrency_limit=1, show_progress="minimal")
