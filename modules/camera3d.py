@@ -35,6 +35,8 @@
 0.4.1: 利用者報告「⏳ 生成中 4/4 steps で止まった」（パイプラインは終わっていた＝後の書き出しで止まった／例外が STATUS に出ない）。
        生成の後の書き出し（コマ → mp4・音・メタ）を try で包み、失敗したら理由を STATUS に出す。書き出しの前に「📼 書き出しています…」を出す。
        コマの変換は本体の生成と同じく、PIL でも配列（uint8／0〜1 の小数）でもそのまま export_to_video に渡せる形にそろえる
+0.4.2: 0.4.1 でも「📼 書き出しています…」で止まった（例外は出ない）。コマの変換（PIL へ）をやめ、本体の生成と同じく
+       `export_to_video(r["frames"], …)` に渡すだけにする。各段（mp4・音・メタ）の始まりと終わりを本体のログに出して、止まる所が分かるようにする
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -48,7 +50,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -484,7 +486,6 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
     """書き出したガイドで R2V を回す（ジェネレータ: (STATUS, 結果の動画)）"""
     import time
     import numpy as np
-    from PIL import Image
     g = _g()
     gp = str(gpath or "")
     if not gp:
@@ -589,24 +590,21 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
         return
     r = box["res"]
     yield "\n".join(lines + [_T("📼 書き出しています…")]), None
+    log = g.get("log") or print
     try:
-        def _px(f):                                               # PIL・uint8・0〜1 の小数のどれでも RGB の PIL に
-            if isinstance(f, Image.Image):
-                return f.convert("RGB")
-            a = np.asarray(f)
-            if a.dtype != np.uint8:
-                a = np.clip(a * (255.0 if float(a.max(initial=0)) <= 1.0 + 1e-6 else 1.0), 0, 255).round().astype(np.uint8)
-            return Image.fromarray(a)
-        frames = [_px(f) for f in r["frames"]]
         stamp = datetime.datetime.now().strftime("%H%M%S")
         out = os.path.join("/content", f"minimax_h3_c3d_{stamp}_{sd}.mp4")
-        g["export_to_video"](frames, out, fps=FPS)
+        _fr = r["frames"]
+        log(f"[camera3d] export: frames={type(_fr).__name__} n={len(_fr)} first={type(_fr[0]).__name__} → {out}")
+        g["export_to_video"](_fr, out, fps=FPS)                   # 本体の生成と同じ渡し方（変換しない）
+        log(f"[camera3d] export: done {os.path.getsize(out) if os.path.isfile(out) else 0} bytes")
     except Exception as e:                                        # noqa: BLE001
         yield "\n".join(lines + [_T("❌ 動画を書き出せませんでした: {v0}", v0=f"{type(e).__name__}: {e}")]), None
         return
     if r.get("audio") is not None:
         try:
             g["_mux_audio"](out, r["audio"], r.get("sr"))         # 本体の生成と同じ渡し方
+            log("[camera3d] audio: done")
         except Exception as e:                                    # noqa: BLE001
             lines.append(f"⚠️ audio: {e}")
     try:
@@ -616,6 +614,7 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
                          "module": f"{NAME} {VERSION}"}
         m["refmods"] = {"names": rms[:max(1, n_people)], "strength": 1.0, "each": {n: 1.0 for n in rms[:max(1, n_people)]}, "cap": 0}
         g["write_meta"](out, m)
+        log("[camera3d] meta: done")
     except Exception as e:                                        # noqa: BLE001
         lines.append(f"⚠️ meta: {e}")
     lines.append(_T("✅ 生成しました（{v0} 秒）: {v1}", v0=f"{float(r.get('sec', 0.0)):.0f}", v1=os.path.basename(out)))
