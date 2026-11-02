@@ -49,6 +49,10 @@
        カット後に場所が変わった（本屋 → 屋外）ので、ショットの頭を「hard cut to … at the same place」に。
        人の定義は `<Subject N> is <RefMod N>.` だけ（説明があれば本体の自動挿入が見た目だけを足す。@character は服まで入り、
        説明の服〔キャミソールなど〕が場所や指示より勝ったため）
+0.4.6: 利用者の 3 本目でカットが起きなかった。カットを 2.625 秒に置き、動きの文は「0-2.5s: …／2.5-5s: …」だったので、2.5 秒の文が
+       カットより前と判定されて両方とも [Shot 1] に入り、[Shot 2] は動きなし（セル202 の C1 はショットごとに文があってカットした）。
+       → 動きの文の始まりがカットの 0.3 秒前〜後ならカットの後のショットへ振り分け、カットの ±0.3 秒の時刻は前倒しのカットの時刻へ寄せる。
+       動きの無いショットには「They keep talking quietly.」を入れてショットを空にしない
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -62,7 +66,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.5"
+VERSION = "0.4.6"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -77,6 +81,7 @@ GUIDE_SHORT = 480                        # ガイドの書き出しの短辺（�
 GUIDE_READ_EDGE = 256                    # 0.2.0 生成でガイドを読む短辺（セル200・201: 256 が最も忠実で速い。192 以下は崩れ始める）
 MAX_SEC = 15.0
 MAX_FRAMES = 17 * 21 + 5                 # 362 コマ（約 15 秒）
+CUT_SNAP = 0.3                           # 0.4.6 動きの文の時刻がカットからこの秒以内ならカットの時刻とみなす（置いたカットと書いた時刻のずれ）
 CUT_LEAD = 0.4                           # 0.4.0 プロンプトのカットの時刻を前倒しにする秒（セル202: 書いた時刻より 0.42〜0.54 秒遅れて切り替わった）
 MP_VER = "0.10.14"                       # 0.3.0 @mediapipe/tasks-vision（Apache-2.0）
 MP_MODEL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/"
@@ -393,7 +398,7 @@ def _split_by_shots(act, shots):
         out[0].append(act[:pos[0][0]].strip())
     for i, (st, t0) in enumerate(pos):
         en = pos[i + 1][0] if i + 1 < len(pos) else len(act)
-        k = max([j for j, sh in enumerate(shots) if t0 >= float(sh["a"]) - 1e-6] or [0])
+        k = max([j for j, sh in enumerate(shots) if t0 >= float(sh["a"]) - CUT_SNAP] or [0])   # 0.4.6 カットの少し前に書いた文も後のショットへ
         out[k].append(act[st:en].strip())
     return [" ".join(x) for x in out]
 
@@ -403,7 +408,7 @@ def _shift_cut_times(text, src, dst):
     def fix(v):
         x = float(v)
         for a, b in zip(src, dst):
-            if abs(x - a) <= 0.05:
+            if abs(x - a) <= CUT_SNAP:                            # 0.4.6 カットの ±0.3 秒はカットの時刻とみなす
                 return f"{b:.1f}"
         return v
 
@@ -456,7 +461,7 @@ def compose_prompt(scene, rms, place, action):
             head = (f"[Shot {i + 1}] {a:.1f}-{b:.1f}s: " + ("hard cut to " if i > 0 else "")
                     + f"{_FRAME_WORD.get(sh.get('frame'), _FRAME_WORD['waist'])}" + (" at the same place, same moment" if i > 0 else "")
                     + f" — {ppl}.")
-            body = parts_act[i] if i < len(parts_act) else ""
+            body = (parts_act[i] if i < len(parts_act) else "").strip() or "They keep talking quietly."   # 0.4.6 ショットを空にしない
             lines.append((head + " " + body).strip() + " The camera follows the guide <Video 1> for this shot.")
         detailed = "Realistic photography with soft natural light, " + place + ".\n" + "\n".join(lines)
     else:
