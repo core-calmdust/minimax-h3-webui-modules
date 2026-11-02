@@ -43,6 +43,12 @@
 0.4.4: 利用者の 1 本目（カット入り）で人の定義が崩れていた: 「<Subject 2> is the person in the person shown in <Picture 1>: the person shown
        in <Picture 1>: …」（`<RefMod N>: @character N` を本体が二重に展開）。refmod_tools の書き方どおり `<Subject N> is @character N.`
        （説明が無ければ `<Subject N> is <RefMod N>.`）にする。画面の端に立つ人は「near the left/right edge of the frame」と書く
+0.4.5: 利用者の 2 本目のガイド（guide_20261102_064017）の 2 コマ目以降に、編集用のグリッド・カメラの枠の線・注視点の印（オレンジ）が
+       写っていた。書き出しは 12 コマごとにサーバへ送る間（await）にブラウザの描画ループが走り、その render() が編集用の部品を見える状態へ
+       戻していた（1 コマ目だけきれい）。→ 書き出し中は描画ループを止め、各コマを描く直前にも編集用の部品を隠す。
+       カット後に場所が変わった（本屋 → 屋外）ので、ショットの頭を「hard cut to … at the same place」に。
+       人の定義は `<Subject N> is <RefMod N>.` だけ（説明があれば本体の自動挿入が見た目だけを足す。@character は服まで入り、
+       説明の服〔キャミソールなど〕が場所や指示より勝ったため）
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -56,7 +62,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.4"
+VERSION = "0.4.5"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -423,7 +429,7 @@ def compose_prompt(scene, rms, place, action):
         n = i + 1
         rm = rms[i] if i < len(rms) else None
         if rm:
-            defs.append(f"<Subject {n}> is @character {n}." if _desc_of(rm) else f"<Subject {n}> is <RefMod {n}>.")   # 0.4.4 本体の展開が「the person shown in <…>: 見た目」にする
+            defs.append(f"<Subject {n}> is <RefMod {n}>.")         # 0.4.5 説明があれば本体の自動挿入が見た目だけを足す（服は場所と指示から）
         else:
             defs.append(f"<Subject {n}> is a {'man' if p.get('kind') == 'm' else 'woman'} with a natural, realistic look.")
         sc = scr.get(p.get("id")) or []
@@ -448,7 +454,8 @@ def compose_prompt(scene, rms, place, action):
             vis = sorted(sh.get("who") or [], key=lambda q: q.get("x", 0))
             ppl = (", ".join(f"<Subject {q['n']}> {_where(q.get('x', 0))}" for q in vis) if vis else "no one in the frame")
             head = (f"[Shot {i + 1}] {a:.1f}-{b:.1f}s: " + ("hard cut to " if i > 0 else "")
-                    + f"{_FRAME_WORD.get(sh.get('frame'), _FRAME_WORD['waist'])} — {ppl}.")
+                    + f"{_FRAME_WORD.get(sh.get('frame'), _FRAME_WORD['waist'])}" + (" at the same place, same moment" if i > 0 else "")
+                    + f" — {ppl}.")
             body = parts_act[i] if i < len(parts_act) else ""
             lines.append((head + " " + body).strip() + " The camera follows the guide <Video 1> for this shot.")
         detailed = "Realistic photography with soft natural light, " + place + ".\n" + "\n".join(lines)
@@ -1095,8 +1102,10 @@ function render() {
   });
 }
 let lastTs = 0;
+let exporting = false;                     // 0.4.5 書き出し中は描画ループを止める（render() が編集用の部品を見える状態に戻すため）
 function loop(ts) {
   requestAnimationFrame(loop);
+  if (exporting) return;
   if (S.playing) {
     const dt = lastTs ? (ts - lastTs) / 1000 : 0;
     let t = S.t + dt; if (t > S.dur) t = 0;
@@ -1437,11 +1446,13 @@ const api = {
     r2.setPixelRatio(1); r2.setSize(W, H, false);
     const keepT = S.t, keepAspect = shotAspect;
     shotAspect = W / H;
+    exporting = true;
     setEditorOnly(false);
     try {
       let batch = [], start = 0;
       for (let i = 0; i < n; i++) {
         applyTime(Math.min(S.dur, i / FPS));
+        setEditorOnly(false);                 // 0.4.5 送っている間に何かが戻しても、描く直前にもう一度隠す
         r2.render(scene, shot);
         batch.push(cv.toDataURL('image/jpeg', 0.92));
         if (batch.length === 12 || i === n - 1) {
@@ -1451,6 +1462,7 @@ const api = {
       }
       return await server.c3d_finish(job);
     } finally {
+      exporting = false; dirty = true;
       setEditorOnly(true); shotAspect = keepAspect; r2.dispose(); try { r2.forceContextLoss(); } catch (e) { }
       say(''); setTime(keepT, true);
     }
