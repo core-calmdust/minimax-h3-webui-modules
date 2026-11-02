@@ -37,6 +37,9 @@
        コマの変換は本体の生成と同じく、PIL でも配列（uint8／0〜1 の小数）でもそのまま export_to_video に渡せる形にそろえる
 0.4.2: 0.4.1 でも「📼 書き出しています…」で止まった（例外は出ない）。コマの変換（PIL へ）をやめ、本体の生成と同じく
        `export_to_video(r["frames"], …)` に渡すだけにする。各段（mp4・音・メタ）の始まりと終わりを本体のログに出して、止まる所が分かるようにする
+0.4.3: 0.4.2 のログで、止まっていたのは export_to_video（diffusers → imageio-ffmpeg）の中と分かった（コマは PIL の並び 124 枚、
+       3 分たっても mp4 ができない）。imageio を通さず、ガイドの書き出しと同じく本体の ffmpeg（_ffmpeg_exe）へ生のコマを流して
+       libx264 で書く（stderr はパイプにしない＝詰まりようがない形、タイムアウト 10 分）
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -50,7 +53,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -482,6 +485,43 @@ def _canvas(edge):
     return cm()
 
 
+def _write_mp4(frames, out, log=print):
+    """コマ（PIL・配列）→ mp4（libx264・yuv420p・24fps）。本体の ffmpeg へ生の RGB を流す（imageio を通さない）"""
+    import numpy as np
+    from PIL import Image
+    try:
+        ff = _g()["_ffmpeg_exe"]()
+    except Exception:                                             # noqa: BLE001
+        ff = "ffmpeg"
+
+    def rgb(f):
+        if isinstance(f, Image.Image):
+            return np.asarray(f.convert("RGB"))
+        a = np.asarray(f)
+        if a.dtype != np.uint8:
+            a = np.clip(a * (255.0 if float(a.max(initial=0)) <= 1.0 + 1e-6 else 1.0), 0, 255).round().astype(np.uint8)
+        return a[..., :3]
+    first = rgb(frames[0])
+    h, w = first.shape[:2]
+    w2, h2 = w - w % 2, h - h % 2
+    tmp = out + ".part.mp4"
+    cmd = [ff, "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-",
+           "-vf", f"crop={w2}:{h2}:0:0", "-c:v", "libx264", "-crf", "17", "-preset", "veryfast", "-pix_fmt", "yuv420p", tmp]
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for i, f in enumerate(frames):
+            p.stdin.write(np.ascontiguousarray(first if i == 0 else rgb(f)).tobytes())
+        p.stdin.close()
+        p.wait(timeout=600)
+    except Exception:
+        p.kill()
+        raise
+    if p.returncode != 0 or not os.path.isfile(tmp):
+        raise RuntimeError(f"ffmpeg exit {p.returncode}")
+    os.replace(tmp, out)
+    log(f"[camera3d] export: wrote {len(frames)} frames {w2}x{h2}")
+
+
 def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
     """書き出したガイドで R2V を回す（ジェネレータ: (STATUS, 結果の動画)）"""
     import time
@@ -596,7 +636,7 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
         out = os.path.join("/content", f"minimax_h3_c3d_{stamp}_{sd}.mp4")
         _fr = r["frames"]
         log(f"[camera3d] export: frames={type(_fr).__name__} n={len(_fr)} first={type(_fr[0]).__name__} → {out}")
-        g["export_to_video"](_fr, out, fps=FPS)                   # 本体の生成と同じ渡し方（変換しない）
+        _write_mp4(_fr, out, log)                                  # 0.4.3 imageio を通さず ffmpeg へ直接
         log(f"[camera3d] export: done {os.path.getsize(out) if os.path.isfile(out) else 0} bytes")
     except Exception as e:                                        # noqa: BLE001
         yield "\n".join(lines + [_T("❌ 動画を書き出せませんでした: {v0}", v0=f"{type(e).__name__}: {e}")]), None
