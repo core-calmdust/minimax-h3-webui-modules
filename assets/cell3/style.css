@@ -250,10 +250,14 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
    大きさは元の文字のタイトル（20px）に合わせる: ロゴの大文字の高さ＝ロゴの高さ × 0.47 → 30px で約 14px（20px の字の大文字と同じ）。
    字の色は変数: 「MiniMax H3」は元のタイトルと同じ --h3-title、「WebUI」は --h3-accent。版（ver1.7）は右の HUD と同じ字 */
 #header-bar .hdr:has(.hdr-logo) { align-items: center; }
-#header-bar .hdr-logo {
-    display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
+/* 版（ver1.7）は字の下端（ベースライン）をロゴの文字の下端にそろえる（利用者「上寄りすぎ」2026-11-11）。
+   ロゴの文字のベースラインは SVG の上から 22.1px（高さ 30px のとき）＝下から 7.9px。
+   ロゴと版を同じ行に並べ、SVG を vertical-align: -7.9px で下げると、ロゴの文字の下端が行のベースラインに乗る
+   （版の字の書体に左右されない。flex のベースラインそろえでは SVG の下端が基準になって合わない＝実測） */
+#header-bar .hdr-logo { display: inline-block; white-space: nowrap; }
+#header-bar .hdr-logo-svg {
+    display: inline-block; height: 30px; width: auto; vertical-align: -7.9px; margin-right: 10px;
 }
-#header-bar .hdr-logo-svg { height: 30px; width: auto; display: block; flex: none; }
 #header-bar .hdr-logo-name { fill: var(--h3-title); }
 #header-bar .hdr-logo-accent { fill: var(--h3-accent); }
 #header-bar .hdr-ver {
