@@ -246,6 +246,19 @@ body.dark, body.dark .gradio-container, .dark .gradio-container {
     display: flex; align-items: baseline; justify-content: space-between;
     gap: 16px; width: 100%;
 }
+/* 🆕 2026-11-11 左上のタイトルをロゴ（assets/cell3/logo.svg、文字は輪郭化）にする。
+   大きさは元の文字のタイトル（20px）に合わせる: ロゴの大文字の高さ＝ロゴの高さ × 0.47 → 30px で約 14px（20px の字の大文字と同じ）。
+   字の色は変数: 「MiniMax H3」は元のタイトルと同じ --h3-title、「WebUI」は --h3-accent。版（ver1.7）は右の HUD と同じ字 */
+#header-bar .hdr:has(.hdr-logo) { align-items: center; }
+#header-bar .hdr-logo {
+    display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
+}
+#header-bar .hdr-logo-svg { height: 30px; width: auto; display: block; flex: none; }
+#header-bar .hdr-logo-name { fill: var(--h3-title); }
+#header-bar .hdr-logo-accent { fill: var(--h3-accent); }
+#header-bar .hdr-ver {
+    color: var(--h3-muted) !important; font-size: 12px !important; letter-spacing: 0.04em !important;
+}
 #header-bar .hdr-title {
     white-space: nowrap;
     color: var(--h3-title) !important; font-weight: 500 !important;

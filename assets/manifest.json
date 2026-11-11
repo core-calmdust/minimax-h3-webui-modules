@@ -5,7 +5,7 @@
   {
    "name": "style.css",
    "file": "assets/cell3/style.css",
-   "sha256": "5b643a6473e12d6cbe548dff7ff88cbd0ee43c395422f51ad70539adae420efb"
+   "sha256": "0f0ecdecd7edc3f2dbbf0a3967e27ced0ba0c7be8e03dff05ef8515399d50e01"
   },
   {
    "name": "extra.css",
@@ -86,6 +86,11 @@
    "name": "LIB_NAV_JS",
    "file": "assets/cell3/js/lib_nav.js",
    "sha256": "82ddbdb927613748453fd36c43f0c81d9bb6d42b27f2a880df57d5ceb0682b6b"
+  },
+  {
+   "name": "HDR_LOGO_SVG",
+   "file": "assets/cell3/logo.svg",
+   "sha256": "623bce243f05e36e2c9a7c1c975d0d70fb6381c9dc0db0dc725463aaeeea7586"
   }
  ]
 }
