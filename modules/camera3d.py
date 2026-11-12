@@ -66,6 +66,10 @@
        カメラが止まるショットは頭（1.0）とカットの 16 コマ前（0.5）に同じ静止画（セル215 の KW5L0）。頭の静止画は <Picture N> で参照。
        カットの時刻は前倒ししない。MoGe・LoRA はセル2 が本体の読み込みと並べて取り寄せる（c3d_prefetch_wait）。
        深度は MoGe-2（microsoft/MoGe・MIT）。歪ませ方の発想は ComfyUI-CrossViewWarp（Apache-2.0）、コードは写していない
+0.6.1: 利用者の 1 本目（カメラ固定・1 ショット）が色が濃く焼けた絵になった。0.6.0 は Turbo・強さを CREATE の今の設定のまま使っていた
+       （測ったのは lightx2v 4step v1.0 768p (REF2V)・4 歩・1.0）＋カメラが止まるショットにも頭の静止画を <Picture N> で参照していた
+       （測った KW は参照なし。キーフレームと同じ絵を参照にも入れると二重に効く）。→ 生成の間だけ測った Turbo に固定して終わったら戻す・
+       参照の静止画はカメラが動くショットだけ（焼けた原因はこの 2 つのどちらかと見る・⏳未確認）
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -79,7 +83,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -670,6 +674,7 @@ CROSSVIEW = ("Cseti/MiniMax-H3_Ref2VA-LoRA-CrossView-Warp_v1", "MiniMax-H3_Ref2V
              "crossview_warp_v1")         # MiniMax H3 Community License（本体と同じ）
 CROSSVIEW_STR = 0.8                       # セル219: 0.4 は穴（マゼンタ）が残る・0.6〜0.8 は同じ
 TRANS_FRAMES = 22                         # セル218・219: カットの後の頭は前の頭の静止画から 22 コマのつなぎで（同じ部屋・ガイドの角度）
+TWO_STAGE_TURBO = "lightx2v 4step v1.0 768p (REF2V)"   # 0.6.1 セル209〜219 はこの Turbo・4 歩・強さ 1.0 で測った（0.6.0 は CREATE の設定のまま）
 MOGE_REPO = "Ruicheng/moge-2-vitl-normal"  # MoGe-2（コード・重みとも MIT）
 _SIG = (11, 77, 201)                      # 動画の潜在を差し込むキーフレームの印（左上の 3 画素）
 
@@ -1223,7 +1228,7 @@ def _two_stage(st, gp, meta, rms, place, action, sd, w, h, nf, steps, kfpath):
         info["trans"].append(_T("S{v0}→S{v1}: 穴 {v2}%・差し込み {v3}/{v4}", v0=i, v1=i + 1, v2=f"{holes[-1] * 100:.0f}", v3=hits,
                                 v4=int(lat.shape[2])))
     # ---- 段 2: 動画 ----
-    entries, lats, anchors, cam_words = [], [], [], []
+    entries, lats, anchors, cam_words, clip_shots = [], [], [], [], []
     n_lat = g["kf_latent_count"](nf)
     for i in range(len(shots)):
         a, b = bounds[i], bounds[i + 1]
@@ -1240,6 +1245,7 @@ def _two_stage(st, gp, meta, rms, place, action, sd, w, h, nf, steps, kfpath):
                 if nk > 0 and not (set(range(k0, k0 + nk)) & set(anchors)):
                     lats.append(lat[:, :, :nk])
                     anchors += list(range(k0, k0 + nk))
+                    clip_shots.append(i)
                     cam_words.append(cam.words(cam.sample(a / FPS + 1e-4), cam.sample((b - 1) / FPS)))
                     info["shots"].append(_T("S{v0}: カメラが動く（歪ませ {v1} コマ・最後の穴 {v2}%）", v0=i + 1, v1=L, v2=f"{holes[-1] * 100:.0f}"))
                     continue
@@ -1259,8 +1265,8 @@ def _two_stage(st, gp, meta, rms, place, action, sd, w, h, nf, steps, kfpath):
         import torch
         lat_all = torch.cat(lats, 2)
         kfe = list(kfe or []) + [(_marker(j, h, w), anchors[j]) for j in range(len(anchors))]
-    pics = list(range(len(shots)))
-    refs = {"image": [p for p, _im in heads], "video": [], "audio": []}
+    pics = list(clip_shots)                                       # 0.6.1 参照の静止画はカメラが動くショットだけ（セル215 の KW は参照なし）
+    refs = {"image": [heads[i][0] for i in pics], "video": [], "audio": []}
     prompt = compose_prompt_v2(scene, rms, place, action, cam_words, pics, bool(lats))
     st["msg"] = _T("🎬 動画を生成しています")
     r, hits = run("Ref2VA", prompt, nf, refs, kfe or None, sd, lat_all, bool(lats))
@@ -1319,12 +1325,13 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
         else:
             lines.append(_T("🖼 画像を最初のコマにします（0 秒のキーフレーム）"))
     box, st = {}, {"msg": "", "prog": {"n": 0, "total": 4}}
-    key = g["turbo_key"]()
+    key0 = g["turbo_key"]()                                       # 0.6.1 測った組み合わせ（セル209〜219）に固定し、終わったら戻す
+    str0 = float(g["_LORA_STATE"].get("strength", 1.0))
+    key, steps = TWO_STAGE_TURBO, 4
     try:
-        steps = int(g["steps_for_lora"](key, False, "Ref2VA") or 0) or 4
-    except Exception:                                             # noqa: BLE001
-        steps = 4
-    try:
+        if key0 != key:
+            g["install_turbo_lora"](key, verbose=False)
+        g["set_turbo_strength"](1.0)
         ok, msg = g["ensure_mode"]("Ref2VA")
         if not ok:
             yield "\n".join(lines + ["❌ " + str(msg)]), None
@@ -1353,6 +1360,12 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
             rm.update(rm0)
         except Exception:                                         # noqa: BLE001
             pass
+        try:
+            if g["turbo_key"]() != key0:
+                g["install_turbo_lora"](key0, verbose=False)
+            g["set_turbo_strength"](str0)
+        except Exception as e:                                    # noqa: BLE001
+            lines.append(f"⚠️ Turbo: {e}")
     if "err" in box:
         try:
             g["_free_vram"]()
