@@ -57,6 +57,15 @@
        次の起動で読めない。→ シーン（人・カメラ・キー・カット・長さ・縦横比など。下敷きの画像は除く）と生成の箱（RefMod・場所・動き・Seed・
        最初のコマ）を本体の設定ファイル（_UI_STATE["camera3d"]＝ui_state.json。Drive に置いていれば起動をまたいで残る）にも書く。
        開いたときはブラウザの控えと設定ファイルの新しい方を使う（保存の時刻で比べる）。生成の箱は作るときに保存した値を入れる
+0.6.0: 利用者要望「CAMERA 3D でガイドに沿ったカット動画を RefMod の人のまま」（セル205〜219）。ガイドを動画参照で渡すのをやめて 2 段階に:
+       ①1 つ目のショットの頭の静止画を Ref2I（ガイドのコマを効き目 0.3 のキーフレーム・候補 3 枚から鮮やかさ ≥30 で人の重なりが最大のもの）、
+       カットの後の頭は前の頭の静止画から「前の頭のカメラ → このショットの頭のカメラ」へ 22 コマのつなぎ（CrossView-Warp）の最後のコマ
+       （同じ部屋・ガイドの角度。セル218）。②カメラが動くショットは頭の静止画を MoGe-2 の深度で 3D のカメラどおりに歪ませ（穴はマゼンタ）、
+       まとめて VAE に通した潜在をショットの頭からキーフレームとして並べ（diffusers のキーフレームは 1 コマずつなので encode を差し替え）、
+       CrossView-Warp LoRA（Cseti・MiniMax H3 Community License・0.8）で穴を埋めて視点を読み替える（セル216・217）。
+       カメラが止まるショットは頭（1.0）とカットの 16 コマ前（0.5）に同じ静止画（セル215 の KW5L0）。頭の静止画は <Picture N> で参照。
+       カットの時刻は前倒ししない。MoGe・LoRA はセル2 が本体の読み込みと並べて取り寄せる（c3d_prefetch_wait）。
+       深度は MoGe-2（microsoft/MoGe・MIT）。歪ませ方の発想は ComfyUI-CrossViewWarp（Apache-2.0）、コードは写していない
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -70,7 +79,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -203,6 +212,39 @@ I18N = {
     "❌ 動画を書き出せませんでした: {v0}": {"en": "❌ Could not write the video: {v0}", "zh": "❌ 无法写出视频：{v0}", "ko": "❌ 영상을 쓸 수 없었습니다: {v0}"},
     "✅ 生成しました（{v0} 秒）: {v1}": {"en": "✅ Generated ({v0} s): {v1}", "zh": "✅ 已生成（{v0} 秒）：{v1}", "ko": "✅ 생성했습니다({v0} 초): {v1}"},
     "停止": {"en": "Stop", "zh": "停止", "ko": "정지"},
+    # ---- 0.6.0 2 段階＋カメラの動き ----
+    "📦 MoGe と CrossView-Warp を確かめています…": {"en": "📦 Checking MoGe and CrossView-Warp…", "zh": "📦 正在检查 MoGe 和 CrossView-Warp…",
+                                             "ko": "📦 MoGe 와 CrossView-Warp 를 확인하는 중…"},
+    "MoGe を用意できませんでした: {v0}": {"en": "Could not prepare MoGe: {v0}", "zh": "无法准备 MoGe：{v0}", "ko": "MoGe 를 준비할 수 없었습니다: {v0}"},
+    "CrossView-Warp LoRA を用意できませんでした": {"en": "Could not prepare the CrossView-Warp LoRA", "zh": "无法准备 CrossView-Warp LoRA",
+                                          "ko": "CrossView-Warp LoRA 를 준비할 수 없었습니다"},
+    "S1 の頭: 画像をそのまま": {"en": "S1 start: the image as is", "zh": "S1 开头：直接使用图像", "ko": "S1 시작: 이미지를 그대로"},
+    "🖼 1 つ目のショットの頭の静止画 {v0}/{v1}": {"en": "🖼 Still for the start of shot 1: {v0}/{v1}", "zh": "🖼 第 1 个镜头开头的静止画 {v0}/{v1}",
+                                       "ko": "🖼 첫 번째 숏 시작의 정지 이미지 {v0}/{v1}"},
+    "S1 の頭: 候補 {v0} 枚から（人の重なり {v1}・鮮やかさ {v2}）": {
+        "en": "S1 start: picked from {v0} candidates (person overlap {v1}, colourfulness {v2})",
+        "zh": "S1 开头：从 {v0} 张候选中选出（人物重合 {v1}・鲜艳度 {v2}）",
+        "ko": "S1 시작: 후보 {v0} 장에서 선택(인물 겹침 {v1}・선명도 {v2})"},
+    "🔀 S{v0} の頭を S{v1} の頭からつないでいます（歪ませ）": {"en": "🔀 Bridging the start of S{v0} from the start of S{v1} (warping)",
+                                                "zh": "🔀 正在从 S{v1} 的开头衔接 S{v0} 的开头（变形）",
+                                                "ko": "🔀 S{v1} 시작에서 S{v0} 시작으로 잇는 중(변형)"},
+    "🔀 S{v0} の頭を S{v1} の頭からつないでいます（生成）": {"en": "🔀 Bridging the start of S{v0} from the start of S{v1} (generating)",
+                                                "zh": "🔀 正在从 S{v1} 的开头衔接 S{v0} 的开头（生成）",
+                                                "ko": "🔀 S{v1} 시작에서 S{v0} 시작으로 잇는 중(생성)"},
+    "S{v0}→S{v1}: 穴 {v2}%・差し込み {v3}/{v4}": {"en": "S{v0}→S{v1}: holes {v2}%, injected {v3}/{v4}", "zh": "S{v0}→S{v1}：空洞 {v2}%・注入 {v3}/{v4}",
+                                            "ko": "S{v0}→S{v1}: 구멍 {v2}%・주입 {v3}/{v4}"},
+    "🌀 S{v0} を 3D のカメラどおりに歪ませています": {"en": "🌀 Warping S{v0} along the 3D camera", "zh": "🌀 正在按 3D 摄像机变形 S{v0}",
+                                         "ko": "🌀 S{v0} 를 3D 카메라대로 변형하는 중"},
+    "S{v0}: カメラが動く（歪ませ {v1} コマ・最後の穴 {v2}%）": {"en": "S{v0}: moving camera (warped {v1} frames, last-frame holes {v2}%)",
+                                               "zh": "S{v0}：摄像机移动（变形 {v1} 帧・最后一帧空洞 {v2}%）",
+                                               "ko": "S{v0}: 카메라가 움직임(변형 {v1} 프레임・마지막 구멍 {v2}%)"},
+    "S{v0}: カメラが止まる（頭と終わりに静止画）": {"en": "S{v0}: still camera (stills at the start and end)", "zh": "S{v0}：摄像机静止（开头和结尾放静止画）",
+                                       "ko": "S{v0}: 카메라 고정(시작과 끝에 정지 이미지)"},
+    "🎬 動画を生成しています": {"en": "🎬 Generating the video", "zh": "🎬 正在生成视频", "ko": "🎬 영상을 생성하는 중"},
+    "動画の潜在の差し込み {v0}/{v1}": {"en": "Video latents injected {v0}/{v1}", "zh": "视频潜变量注入 {v0}/{v1}", "ko": "영상 잠재 주입 {v0}/{v1}"},
+    "🎬 R2V: {v0}×{v1}・{v2} コマ・seed {v3}・{v4}・Steps {v5}": {"en": "🎬 R2V: {v0}×{v1}, {v2} frames, seed {v3}, {v4}, Steps {v5}",
+                                                          "zh": "🎬 R2V：{v0}×{v1}・{v2} 帧・seed {v3}・{v4}・Steps {v5}",
+                                                          "ko": "🎬 R2V: {v0}×{v1}・{v2} 프레임・seed {v3}・{v4}・Steps {v5}"},
 }
 
 _ST = {"ctx": None, "jobs": {}, "lock": threading.Lock()}
@@ -616,8 +658,621 @@ def _write_mp4(frames, out, log=print):
     log(f"[camera3d] export: wrote {len(frames)} frames {w2}x{h2}")
 
 
+# ------------------------------------------------------------------
+#  0.6.0 カメラの動き: 2 段階（ショットの頭の静止画 → 動画）＋ CrossView-Warp（静止画を 3D のカメラどおりに歪ませてガイドに）
+# ------------------------------------------------------------------
+TWO_STAGE_STR = 0.3                       # セル209・213: 頭の静止画はガイドのコマを効き目 0.3 のキーフレームに（0.2 以下はマネキンを写す）
+TWO_STAGE_FALLBACK = 0.4                  # セル215: 鮮やかさ ≥30 かつ IoU ≥0.5 の候補が無ければ 0.4 を足す
+TWO_STAGE_CANDS = 3                       # セル212〜215: 候補 3 枚で足りる
+COLOR_MIN, IOU_MIN = 30.0, 0.5            # セル209: マネキンの写しは鮮やかさ 14〜28・本物の人は 30〜40
+END_GAP, END_STR = 16, 0.5                # セル213〜215（KW5L0）: カメラが止まるショットは終わりの 16 コマ前に同じ静止画を 0.5
+CROSSVIEW = ("Cseti/MiniMax-H3_Ref2VA-LoRA-CrossView-Warp_v1", "MiniMax-H3_Ref2VA-LoRA-CrossView-Warp_v1_3500.safetensors",
+             "crossview_warp_v1")         # MiniMax H3 Community License（本体と同じ）
+CROSSVIEW_STR = 0.8                       # セル219: 0.4 は穴（マゼンタ）が残る・0.6〜0.8 は同じ
+TRANS_FRAMES = 22                         # セル218・219: カットの後の頭は前の頭の静止画から 22 コマのつなぎで（同じ部屋・ガイドの角度）
+MOGE_REPO = "Ruicheng/moge-2-vitl-normal"  # MoGe-2（コード・重みとも MIT）
+_SIG = (11, 77, 201)                      # 動画の潜在を差し込むキーフレームの印（左上の 3 画素）
+
+
+def _moge_ready(wait=True):
+    """セル2 が裏で用意した MoGe を待つ。無ければここで入れる → (ok, 理由)"""
+    g = _g()
+    pf = g.get("c3d_prefetch_wait")
+    if callable(pf):
+        try:
+            ok_m, _ok_l, msg = pf(timeout=None if wait else 0)
+            if ok_m:
+                return True, ""
+        except Exception:                                         # noqa: BLE001
+            pass
+    import importlib.util
+    if importlib.util.find_spec("moge") is not None and importlib.util.find_spec("utils3d_moge") is not None:
+        return True, ""
+    inst = g.get("c3d_install_moge")
+    if callable(inst):
+        return inst()
+    return False, "MoGe"
+
+
+def _crossview_ready():
+    """CrossView-Warp LoRA を本体の LoRA の場所へ（セル2 が用意していればそのまま）→ 名前（無ければ None）"""
+    g = _g()
+    pf = g.get("c3d_prefetch_wait")
+    if callable(pf):
+        try:
+            pf(timeout=None)
+        except Exception:                                         # noqa: BLE001
+            pass
+    dst = os.path.join(g.get("LORA_DIR", "/content/loras"), CROSSVIEW[2] + ".safetensors")
+    if not os.path.isfile(dst):
+        try:
+            from huggingface_hub import hf_hub_download
+            p = hf_hub_download(CROSSVIEW[0], CROSSVIEW[1])
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy(p, dst)
+        except Exception:                                         # noqa: BLE001
+            return None
+    try:
+        g["lora_catalog"](refresh=True)
+    except Exception:                                             # noqa: BLE001
+        pass
+    return CROSSVIEW[2]
+
+
+class _Cam:
+    """CAMERA 3D のカメラを Python で同じ式で補間する（camera3d の camKeysV・sample・camVec と同じ。カットをまたがない）"""
+
+    def __init__(self, scene, W, H, nf):
+        import math
+        self.m = math
+        self.scene, self.W, self.H, self.nf = scene, W, H, nf
+        self.keys = sorted(list((scene.get("cam") or {}).get("keys") or []), key=lambda q: float(q["t"]))
+        self.dur = float(scene.get("dur", nf / FPS))
+        self.cuts = sorted(float(c) for c in (scene.get("cuts") or []) if 0 < float(c) < self.dur)
+        self.ease = str(scene.get("ease") or "smooth")
+
+    def vec(self, c):
+        m = self.m
+        d = [float(c["pos"][j]) - float(c["tgt"][j]) for j in range(3)]
+        r = max(0.05, m.sqrt(sum(x * x for x in d)))
+        return [float(c["tgt"][0]), float(c["tgt"][1]), float(c["tgt"][2]), m.log(r), m.atan2(d[0], d[2]),
+                m.asin(max(-1.0, min(1.0, d[1] / r))), float(c.get("lens", 35))]
+
+    def kv(self, t):
+        a, b = 0.0, self.dur
+        for c in self.cuts:
+            if c <= t + 1e-6:
+                a = c
+            else:
+                b = c
+                break
+        ins = [q for q in self.keys if a - 1e-6 <= float(q["t"]) < b - 1e-6]
+        if not ins:
+            bef = [q for q in self.keys if float(q["t"]) < a - 1e-6]
+            ins = [bef[-1]] if bef else self.keys[:1]
+        out = []
+        for q in ins:
+            v = self.vec(q)
+            if out:
+                while v[4] - out[-1][1][4] > self.m.pi:
+                    v[4] -= 2 * self.m.pi
+                while v[4] - out[-1][1][4] < -self.m.pi:
+                    v[4] += 2 * self.m.pi
+            out.append((float(q["t"]), v))
+        return out
+
+    def sample(self, t):
+        kv = self.kv(t)
+        if len(kv) == 1 or t <= kv[0][0]:
+            return list(kv[0][1])
+        L = len(kv) - 1
+        if t >= kv[L][0]:
+            return list(kv[L][1])
+        i = 0
+        while i < L - 1 and t >= kv[i + 1][0]:
+            i += 1
+        (ta, a), (tb, b) = kv[i], kv[i + 1]
+        dt = max(1e-6, tb - ta)
+        u = (t - ta) / dt
+        if self.ease == "linear":
+            return [x + (b[j] - x) * u for j, x in enumerate(a)]
+        h00, h10, h01, h11 = 2 * u ** 3 - 3 * u ** 2 + 1, u ** 3 - 2 * u ** 2 + u, -2 * u ** 3 + 3 * u ** 2, u ** 3 - u ** 2
+        out = []
+        for j, x in enumerate(a):
+            m0 = m1 = 0.0
+            if self.ease == "smooth":
+                if i > 0:
+                    m0 = (b[j] - kv[i - 1][1][j]) / max(1e-6, tb - kv[i - 1][0])
+                if i + 1 < L:
+                    m1 = (kv[i + 2][1][j] - x) / max(1e-6, kv[i + 2][0] - ta)
+            out.append(h00 * x + h10 * dt * m0 + h01 * b[j] + h11 * dt * m1)
+        return out
+
+    def pose(self, v):
+        import numpy as np
+        m = self.m
+        r, az, el = m.exp(v[3]), v[4], v[5]
+        tgt = np.array(v[:3], float)
+        pos = tgt + r * np.array([m.cos(el) * m.sin(az), m.sin(el), m.cos(el) * m.cos(az)])
+        return pos, tgt, float(v[6])
+
+    def at(self, fi, head=False):
+        return self.pose(self.sample(fi / FPS + (1e-4 if head else 0.0)))
+
+    def focal(self, lens):
+        return (self.W if self.W >= self.H else self.H) * float(lens) / 36.0     # three の filmGauge 36 は長い辺
+
+    @staticmethod
+    def c2w(pos, tgt):
+        import numpy as np
+        z = pos - tgt
+        z = z / max(1e-9, float(np.linalg.norm(z)))
+        x = np.cross([0.0, 1.0, 0.0], z)
+        x = x / max(1e-9, float(np.linalg.norm(x)))
+        return np.stack([x, np.cross(z, x), z], 1)
+
+    def change(self, va, vb):
+        """2 つのカメラの差 → (方位°, 仰角°, 距離の比, 注視点の移動 m, レンズの差 mm)"""
+        m = self.m
+        da = vb[4] - va[4]
+        while da > m.pi:
+            da -= 2 * m.pi
+        while da < -m.pi:
+            da += 2 * m.pi
+        dt = m.sqrt(sum((vb[j] - va[j]) ** 2 for j in range(3)))
+        return m.degrees(da), m.degrees(vb[5] - va[5]), m.exp(vb[3] - va[3]), dt, vb[6] - va[6]
+
+    def words(self, va, vb, quick=False):
+        da, de, dr, _dt, _dl = self.change(va, vb)
+        w = []
+        if abs(da) >= 5:
+            w.append(f"{'quickly' if quick else 'slowly'} arcs about {abs(da):.0f} degrees to the {'right' if da > 0 else 'left'} around them")
+        if abs(de) >= 3:
+            w.append(f"{'rises' if de > 0 else 'lowers'} slightly")
+        if dr < 0.9:
+            w.append("moves closer")
+        elif dr > 1.1:
+            w.append("pulls back")
+        if not w:
+            return ""
+        return "The camera " + (", ".join(w[:-1]) + " and " + w[-1] if len(w) > 1 else w[0]) + "."
+
+    def moving(self, a, b):
+        """ショット [a, b) の中でカメラが動くか"""
+        da, de, dr, dt, dl = self.change(self.sample(a / FPS + 1e-4), self.sample((b - 1) / FPS))
+        return abs(da) >= 2 or abs(de) >= 2 or abs(dr - 1) >= 0.03 or dt >= 0.05 or abs(dl) >= 1
+
+
+def _depth(img):
+    """MoGe-2 → 光軸方向の深度（H×W・m）。使う間だけ GPU に載せる"""
+    import numpy as np
+    import torch
+    from moge.model.v2 import MoGeModel
+    m = MoGeModel.from_pretrained(MOGE_REPO).to("cuda").eval()
+    try:
+        with torch.no_grad():
+            o = m.infer(torch.from_numpy(np.ascontiguousarray(img)).to("cuda").float().div(255.0).permute(2, 0, 1))
+        dep = o["depth"].float().cpu().numpy()
+        msk = o["mask"].bool().cpu().numpy() if "mask" in o else np.isfinite(dep)
+    finally:
+        del m
+        torch.cuda.empty_cache()
+    return np.where(np.isfinite(dep) & msk, dep, np.nan)
+
+
+def _warp(img, cams, cam, scene, person_mask):
+    """静止画（cams[0] のカメラの絵）→ cams の各カメラへ撒く（遠い順に書いて近いもので上書き・見えない所はマゼンタ）。
+    尺は静止画の人の深度の中央値 ＝ CAMERA 3D の人（胴の高さ 1.0）までの距離。発想は ComfyUI-CrossViewWarp（Apache-2.0）・コードは写していない"""
+    import numpy as np
+    import cv2
+    H, W = img.shape[:2]
+    dep = _depth(img)
+    pos0, tgt0, lens0 = cams[0]
+    R0 = cam.c2w(pos0, tgt0)
+    zs = [-(R0.T @ (np.array([float(p.get("x", 0.0)), 1.0, float(p.get("z", 0.0))]) - pos0))[2] for p in (scene.get("people") or [])]
+    z_scene = float(np.median(zs)) if zs else float(np.linalg.norm(pos0 - tgt0))
+    ok_ = person_mask & np.isfinite(dep)
+    dv = dep[ok_] if ok_.sum() > 500 else dep[np.isfinite(dep)]
+    scale = z_scene / max(1e-3, float(np.median(dv))) if dv.size else 1.0
+    far = float(np.nanpercentile(dep, 99)) if np.isfinite(dep).any() else 50.0
+    dep = np.where(np.isfinite(dep), dep, far) * scale
+    f0 = cam.focal(lens0)
+    uu, vv = np.meshgrid(np.arange(W, dtype=np.float64), np.arange(H, dtype=np.float64))
+    Pw = np.stack([(uu - W / 2) / f0 * dep, -(vv - H / 2) / f0 * dep, -dep], -1).reshape(-1, 3) @ R0.T + pos0
+    cols = img.reshape(-1, 3)
+    frames, holes = [], []
+    for pos, tgt, lens in cams:
+        Pc = (Pw - pos) @ cam.c2w(pos, tgt)
+        z = -Pc[:, 2]
+        f = cam.focal(lens)
+        u = np.round(Pc[:, 0] / np.maximum(z, 1e-6) * f + W / 2).astype(np.int64)
+        v = np.round(-Pc[:, 1] / np.maximum(z, 1e-6) * f + H / 2).astype(np.int64)
+        idx = np.nonzero((z > 0.05) & (u >= 0) & (u < W) & (v >= 0) & (v < H))[0]
+        order = idx[np.argsort(-z[idx])]
+        out = np.zeros((H, W, 3), np.uint8)
+        filled = np.zeros((H, W), bool)
+        out[v[order], u[order]] = cols[order]
+        filled[v[order], u[order]] = True
+        fl = filled.astype(np.float32)
+        nb = cv2.boxFilter(fl, -1, (3, 3), normalize=False) - fl
+        crack = (~filled) & (nb >= 5)                             # 1 画素の割れ目だけ周りの色で埋める
+        if crack.any():
+            acc = cv2.boxFilter(out.astype(np.float32) * fl[..., None], -1, (3, 3), normalize=False)
+            out[crack] = (acc[crack] / np.maximum(nb[crack], 1)[:, None]).astype(np.uint8)
+            filled |= crack
+        out[~filled] = (255, 0, 255)
+        frames.append(out)
+        holes.append(float((~filled).mean()))
+    return frames, holes
+
+
+def _clip_latent(frames):
+    """歪ませたコマ（17k+5 枚）をまとめて VAE に通す（ComfyUI の Add Guide と同じく時間方向も圧縮）"""
+    import numpy as np
+    import torch
+    from diffusers.modular_pipelines.minimax_h3 import encoders as _en
+    pipe = _g()["pipe"]
+    dev = getattr(pipe, "_execution_device", None) or next(pipe.vae.parameters()).device
+    px = torch.from_numpy(np.ascontiguousarray(np.stack(frames))).to(dev).permute(3, 0, 1, 2)[None]
+    with torch.no_grad():
+        return _en.encode_vae_condition(pipe.vae, px, pipe.pixel_mean, pipe.pixel_std, int(pipe.keyframe_encode_seed))
+
+
+def _marker(j, H, W):
+    import numpy as np
+    a = np.zeros((H, W, 3), np.uint8)
+    a[0, 0] = (j % 256, _SIG[1], _SIG[2])
+    a[0, 1] = (_SIG[0], j // 256, _SIG[2])
+    a[1, 0] = (_SIG[2], _SIG[1], _SIG[0])
+    return a
+
+
+def _with_clip(lat, fn):
+    """本体のキーフレームの encode の中で、印の画像（_marker）を動画の潜在の j 枚目に差し替えて fn() を走らせる
+    （diffusers のキーフレームは 1 コマずつなので、動画のガイドはこの差し替えで渡す）→ (fn の結果, 差し替えた数)"""
+    from diffusers.modular_pipelines.minimax_h3 import encoders as _en
+    orig = _en.encode_vae_condition
+    hits = [0]
+
+    def evc(vae, pixels, pixel_mean, pixel_std, encode_seed=42):
+        try:
+            if pixels.shape[2] == 1:
+                q = pixels[0, :, 0, :2, :2].to("cpu").int()
+                if (int(q[1, 0, 0]) == _SIG[1] and int(q[2, 0, 0]) == _SIG[2] and int(q[0, 0, 1]) == _SIG[0]
+                        and tuple(int(x) for x in q[:, 1, 0]) == (_SIG[2], _SIG[1], _SIG[0])):
+                    j = int(q[0, 0, 0]) + 256 * int(q[1, 0, 1])
+                    if 0 <= j < lat.shape[2]:
+                        hits[0] += 1
+                        return lat[:, :, j:j + 1].clone()
+        except Exception:                                         # noqa: BLE001
+            pass
+        return orig(vae, pixels, pixel_mean, pixel_std, encode_seed)
+    _en.encode_vae_condition = evc
+    try:
+        return fn(), hits[0]
+    finally:
+        _en.encode_vae_condition = orig
+
+
+def _rgb(x):
+    import numpy as np
+    from PIL import Image
+    if isinstance(x, Image.Image):
+        return np.asarray(x.convert("RGB"))
+    a = np.asarray(x)
+    if a.dtype != np.uint8:
+        a = np.clip(a * (255.0 if float(a.max(initial=0)) <= 1.0 + 1e-6 else 1.0), 0, 255).round().astype(np.uint8)
+    return a[..., :3]
+
+
+def _colorful(img):
+    import numpy as np
+    import cv2
+    a = cv2.resize(img, (480, int(480 * img.shape[0] / img.shape[1])), interpolation=cv2.INTER_AREA).astype(np.float32)
+    rg = a[..., 0] - a[..., 1]
+    yb = 0.5 * (a[..., 0] + a[..., 1]) - a[..., 2]
+    return float(np.sqrt(rg.std() ** 2 + yb.std() ** 2) + 0.3 * np.sqrt(rg.mean() ** 2 + yb.mean() ** 2))
+
+
+def compose_prompt_v2(scene, rms, place, action, cam_words, pics, crossview):
+    """0.6.0 2 段階用の 6 節: ガイドの動画参照は使わない。ショットの頭の静止画を <Picture N>（[Shot N] の最初のコマ）として渡し、
+    カットの時刻は前倒ししない（セル215: キーフレームがカットを留める）。カメラが動くショットには動きの言葉を足す"""
+    act = str(action or "").strip()
+    if re.search(r"^\s*subject_definitions\s*:", act, re.M):
+        return act
+    people = list(scene.get("people") or [])
+    shots = list(scene.get("shots") or []) or [{"a": 0.0, "b": float(scene.get("dur", 5.0)), "who": [], "frame": "knee"}]
+    multi = len(shots) > 1
+    place = str(place or "").strip() or "a natural, realistic location"
+    shot_tags = ", ".join(f"[Shot {i + 1}]" for i in range(len(shots)))
+    defs, keep = [], []
+    for i, p in enumerate(people):
+        n = i + 1
+        rm = rms[i] if i < len(rms) else None
+        defs.append(f"<Subject {n}> is <RefMod {n}>." if rm else
+                    f"<Subject {n}> is a {'man' if p.get('kind') == 'm' else 'woman'} with a natural, realistic look.")
+        keep.append(f"<Subject {n}> (appears in {shot_tags}): partially_preserved - face and hair are kept; the pose and place follow "
+                    f"the description.")
+    pic_txt = "; ".join(f"<Picture {k + 1}> is the opening frame of [Shot {i + 1}]" for k, i in enumerate(pics))
+    head = ("crossview. " if crossview else "") + (
+        f"{len(shots)} shots in {place}, joined by hard cuts at " + ", ".join(f"{float(sh['a']):.1f}s" for sh in shots[1:]) + "."
+        if multi else f"One continuous shot in {place}.")
+    summ = (head + " The people and the place look real. " + (pic_txt + ": the same people, their clothes and the place, seen from that "
+            "shot's starting camera. " if pics else "") + ("Faces stay the same people in every shot." if multi else
+                                                         "Faces stay the same people throughout."))
+    keep_pic = [f"<Picture {k + 1}> (opening frame of [Shot {i + 1}]): fully_preserved - the people, their clothes and the place are "
+                "kept; only the camera view changes over the shot." for k, i in enumerate(pics)]
+    parts_act = _split_by_shots(act, shots) if multi else [act]
+    lines = []
+    for i, sh in enumerate(shots):
+        a = 0.0 if i == 0 else float(sh["a"])
+        b = float(shots[i + 1]["a"]) if i + 1 < len(shots) else float(sh.get("b", scene.get("dur", 5.0)))
+        vis = sorted(sh.get("who") or [], key=lambda q: q.get("x", 0))
+        ppl = ", ".join(f"<Subject {q['n']}> {_where(q.get('x', 0))}" for q in vis) if vis else "no one in the frame"
+        hd = (f"[Shot {i + 1}] {a:.1f}-{b:.1f}s: " + ("hard cut to " if i > 0 else "") + _FRAME_WORD.get(sh.get("frame"), _FRAME_WORD["waist"])
+              + (" at the same place, same moment" if i > 0 else "") + f" — {ppl}.")
+        cw = cam_words[i] if i < len(cam_words) else ""
+        body = (parts_act[i] if i < len(parts_act) else "").strip() or "They keep talking quietly."
+        lines.append(" ".join(x for x in (hd, cw, body) if x))
+    sound = ("The voices of the people and the natural ambience of the place." if re.search(r"<d>|says|said|speaks|talks", act, re.I)
+             else "The natural ambience of the place.")
+    return "\n\n".join([
+        "subject_definitions:\n" + ("\n".join(defs) if defs else "N/A"),
+        f"summary:\n[reference generation] {summ}",
+        "retention_analysis:\n" + "\n".join(keep_pic + keep),
+        "detailed_description:\nRealistic photography with soft natural light, " + place + ".\n" + "\n".join(lines),
+        f"overall_soundscape:\n{sound}",
+        "non_diegetic_music:\nN/A",
+    ])
+
+
+def _still_prompt(scene, rms, place, action, i):
+    shots = list(scene.get("shots") or []) or [{"a": 0.0, "who": [], "frame": "knee"}]
+    sh = shots[i]
+    vis = sorted(sh.get("who") or [], key=lambda q: q.get("x", 0))
+    ppl = ", ".join(f"<Subject {q['n']}> {_where(q.get('x', 0))}" for q in vis) or "no one in the frame"
+    frame = _FRAME_WORD.get(sh.get("frame"), _FRAME_WORD["waist"])
+    parts = _split_by_shots(str(action or ""), shots) if len(shots) > 1 else [str(action or "")]
+    act = parts[i] if i < len(parts) else ""
+    act = re.sub(r"\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*s\s*:", "", act)
+    act = re.sub(r"\s*(?:and\s+)?(?:asks|says|said)\s*<d>.*?</d>", "", act).strip()
+    act = re.sub(r"<d>.*?</d>", "", act).strip().rstrip(",;:")
+    act = re.sub(r"\s+and$", "", act)
+    if act and act[-1] not in ".!?":
+        act += "."
+    people = list(scene.get("people") or [])
+    defs = [(f"<Subject {n + 1}> is <RefMod {n + 1}>." if n < len(rms) and rms[n] else
+             f"<Subject {n + 1}> is a {'man' if p.get('kind') == 'm' else 'woman'} with a natural, realistic look.") for n, p in enumerate(people)]
+    keep = [f"<Subject {n + 1}> (appears in [Shot 1]): partially_preserved - face and hair are kept; the pose and place follow the "
+            "description." for n in range(len(defs))]
+    two = " Both of them are in the frame together, standing with their whole bodies visible as in the framing." if len(vis) >= 2 else ""
+    place = str(place or "").strip() or "a natural, realistic location"
+    return "\n\n".join([
+        "subject_definitions:\n" + ("\n".join(defs) if defs else "N/A"),
+        f"summary:\n[reference generation] A single still photograph in {place}: {frame} — {ppl}.{two} The people and the place look real.",
+        "retention_analysis:\n" + ("\n".join(keep) if keep else "N/A"),
+        f"detailed_description:\nRealistic photography with soft natural light, {place}. [Shot 1] {frame} — {ppl}.{two} " + (act + " " if act else ""),
+        "overall_soundscape:\nN/A",
+        "non_diegetic_music:\nN/A",
+    ])
+
+
+def _trans_prompt(scene, rms, place, i, words):
+    shots = list(scene.get("shots") or [])
+    sh = shots[i]
+    vis = sorted(sh.get("who") or [], key=lambda q: q.get("x", 0))
+    ppl = ", ".join(f"<Subject {q['n']}> {_where(q.get('x', 0))}" for q in vis) or "both of them in the frame"
+    frame = _FRAME_WORD.get(sh.get("frame"), _FRAME_WORD["waist"])
+    people = list(scene.get("people") or [])
+    defs = [(f"<Subject {n + 1}> is <RefMod {n + 1}>." if n < len(rms) and rms[n] else
+             f"<Subject {n + 1}> is a {'man' if p.get('kind') == 'm' else 'woman'} with a natural, realistic look.") for n, p in enumerate(people)]
+    keep = [f"<Subject {n + 1}> (appears in [Shot 1]): partially_preserved - face and hair are kept; the pose and place follow the "
+            "description." for n in range(len(defs))]
+    place = str(place or "").strip() or "a natural, realistic location"
+    return "\n\n".join([
+        "subject_definitions:\n" + ("\n".join(defs) if defs else "N/A"),
+        f"summary:\n[reference generation] crossview. One continuous shot in {place}. {words} <Picture 1> is the opening frame of this "
+        "shot: the same people, their clothes and the place, seen from the starting camera. The people and the place look real. "
+        "Faces stay the same people throughout.",
+        "retention_analysis:\n<Picture 1> (opening frame): fully_preserved - the people, their clothes and the place are kept; only the "
+        "camera view changes over the shot.\n" + "\n".join(keep),
+        f"detailed_description:\nRealistic photography with soft natural light, {place}.\n[Shot 1] 0.0-0.9s: {words} It ends on {frame} — "
+        f"{ppl}. They stand still and listen.",
+        "overall_soundscape:\nThe natural ambience of the place.",
+        "non_diegetic_music:\nN/A",
+    ])
+
+
+def _two_stage(st, gp, meta, rms, place, action, sd, w, h, nf, steps, kfpath):
+    """2 段階＋カメラの動き。st: 進み具合（"msg"・"prog"）を書く dict → (_run_pipe の結果, プロンプト, 参照, 内訳)"""
+    import numpy as np
+    import cv2
+    import subprocess as sp_
+    from PIL import Image
+    g = _g()
+    rf = (g.get("_MODS") or {}).get("ref_filters")
+    scene = meta.get("scene") or {}
+    shots = list(scene.get("shots") or []) or [{"a": 0.0, "b": nf / float(FPS), "who": [], "frame": "knee"}]
+    cam = _Cam(scene, w, h, nf)
+    bounds = [0] + [int(round(float(sh["a"]) * FPS)) for sh in shots[1:]] + [nf]
+    work = os.path.join(OUT_DIR, "work_" + datetime.datetime.now().strftime("%H%M%S"))
+    os.makedirs(work, exist_ok=True)
+    info = {"shots": [], "trans": []}
+
+    def pmask(img):
+        try:
+            return rf._person_mask(img) > 0.5
+        except Exception:                                         # noqa: BLE001
+            return np.zeros(img.shape[:2], bool)
+    # ガイドのコマ（人の重なりで頭の静止画を選ぶ）
+    ff = g["_ffmpeg_exe"]()
+    raw = sp_.run([ff, "-v", "error", "-i", gp, "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+    kk = len(raw) // (w * h * 3)
+    gfr = np.frombuffer(raw, np.uint8, count=kk * w * h * 3).reshape(kk, h, w, 3)
+    sz = (480, int(round(480 * h / w)))
+
+    def gmask(fi):
+        x = gfr[min(len(gfr) - 1, fi)]
+        m = np.abs(cv2.cvtColor(x, cv2.COLOR_RGB2GRAY).astype(np.int16) - 130) > 8
+        return cv2.resize(m.astype(np.uint8), sz, interpolation=cv2.INTER_NEAREST) > 0
+
+    def iou(img, gm):
+        pm = pmask(cv2.resize(img, sz, interpolation=cv2.INTER_AREA))
+        return float((pm & gm).sum() / max(1, (pm | gm).sum()))
+
+    moving = [cam.moving(bounds[i], bounds[i + 1]) for i in range(len(shots))]
+    need_cv = any(moving) or len(shots) > 1
+    lora = None
+    if need_cv:
+        st["msg"] = _T("📦 MoGe と CrossView-Warp を確かめています…")
+        ok, why = _moge_ready()
+        if not ok:
+            raise RuntimeError(_T("MoGe を用意できませんでした: {v0}", v0=why))
+        lora = _crossview_ready()
+        if not lora:
+            raise RuntimeError(_T("CrossView-Warp LoRA を用意できませんでした"))
+
+    def run(mode, prompt, n, refs, kfe, seed, lat=None, use_lora=False):
+        g["clear_extra_loras"]()
+        if use_lora and lora:
+            prompt, _nl = g["apply_lora_prompt"](f"<{lora}:{CROSSVIEW_STR:g}> " + prompt)
+        try:
+            prompt, _n = g["expand_prompt_labels"](prompt, refs)
+        except Exception:                                         # noqa: BLE001
+            pass
+        st["prog"] = prog = {"n": 0, "total": steps, "phase": "denoise"}
+
+        def call():
+            if mode == "Ref2I":
+                return g["_run_pipe"]("Ref2I", prompt, w, h, n, steps, int(seed), None, None, refs, prog, kf_entries=kfe)
+            with _canvas(GUIDE_READ_EDGE):
+                return g["_run_pipe"]("Ref2VA", prompt, w, h, n, steps, int(seed), None, None, refs, prog, kf_entries=kfe)
+        try:
+            if lat is not None:
+                return _with_clip(lat, call)
+            return call(), 0
+        finally:
+            g["clear_extra_loras"]()
+
+    # ---- 段 1: 1 つ目のショットの頭の静止画 ----
+    heads = []
+    kp = str(kfpath or "")
+    if kp and os.path.isfile(kp):
+        im = np.asarray(Image.open(kp).convert("RGB"))
+        im = cv2.resize(im, (w, h), interpolation=cv2.INTER_AREA)
+        p0 = os.path.join(work, "head_s1.png")
+        Image.fromarray(im).save(p0)
+        heads.append((p0, im))
+        info["shots"].append(_T("S1 の頭: 画像をそのまま"))
+    else:
+        fi = min(nf - 1, 2)
+        gpng = os.path.join(work, "guide_s1.png")
+        Image.fromarray(gfr[min(len(gfr) - 1, fi)]).save(gpng)
+        nfs = int(g.get("T2I_FRAMES", 5))
+        refs0 = {"image": [], "video": [], "audio": []}
+        sp = _still_prompt(scene, rms, place, action, 0)
+        cands, gm0 = [], gmask(fi)
+        for k_e, e in enumerate((TWO_STAGE_STR, TWO_STAGE_FALLBACK)):
+            if k_e > 0 and any(c[2] >= COLOR_MIN and c[1] >= IOU_MIN for c in cands):
+                break
+            for c in range(TWO_STAGE_CANDS):
+                st["msg"] = _T("🖼 1 つ目のショットの頭の静止画 {v0}/{v1}", v0=len(cands) + 1, v1=TWO_STAGE_CANDS * (k_e + 1))
+                kfe, _note, err = g["kf_prepare"]([{"path": gpng, "sec": 0.0, "name": "guide_s1.png", "str": float(e)}], w, h, nfs)
+                if not kfe:
+                    raise RuntimeError(err or "kf_prepare")
+                r, _h = run("Ref2I", sp, nfs, refs0, kfe, sd * 10 + c + 100 * k_e)
+                im = _rgb(g["pick_still"](r["frames"]))
+                if im.shape[:2] != (h, w):
+                    im = cv2.resize(im, (w, h), interpolation=cv2.INTER_AREA)
+                cands.append((im, iou(im, gm0), _colorful(im)))
+        ok_c = [c for c in cands if c[2] >= COLOR_MIN]
+        best = max(ok_c, key=lambda c: c[1]) if ok_c else max(cands, key=lambda c: c[2])
+        p0 = os.path.join(work, "head_s1.png")
+        Image.fromarray(best[0]).save(p0)
+        heads.append((p0, best[0]))
+        info["shots"].append(_T("S1 の頭: 候補 {v0} 枚から（人の重なり {v1}・鮮やかさ {v2}）", v0=len(cands), v1=f"{best[1]:.2f}",
+                                v2=f"{best[2]:.0f}"))
+    # ---- 段 1b: カットの後の頭は前の頭の静止画からカメラを動かして（同じ部屋・ガイドの角度） ----
+    for i in range(1, len(shots)):
+        va = cam.sample(bounds[i - 1] / FPS + 1e-4)
+        vb = list(cam.sample(bounds[i] / FPS + 1e-4))
+        while vb[4] - va[4] > cam.m.pi:
+            vb[4] -= 2 * cam.m.pi
+        while vb[4] - va[4] < -cam.m.pi:
+            vb[4] += 2 * cam.m.pi
+        cams = []
+        for j in range(TRANS_FRAMES):
+            u = j / (TRANS_FRAMES - 1)
+            u = u * u * (3 - 2 * u)
+            cams.append(cam.pose([x + (y - x) * u for x, y in zip(va, vb)]))
+        st["msg"] = _T("🔀 S{v0} の頭を S{v1} の頭からつないでいます（歪ませ）", v0=i + 1, v1=i)
+        prev_p, prev_im = heads[-1]
+        wf, holes = _warp(prev_im, cams, cam, scene, pmask(prev_im))
+        lat = _clip_latent(wf)
+        kfe = [(_marker(j, h, w), j) for j in range(int(lat.shape[2]))]
+        words = cam.words(va, vb, quick=True) or "The camera moves slightly."
+        refs1 = {"image": [prev_p], "video": [], "audio": []}
+        st["msg"] = _T("🔀 S{v0} の頭を S{v1} の頭からつないでいます（生成）", v0=i + 1, v1=i)
+        r, hits = run("Ref2VA", _trans_prompt(scene, rms, place, i, words), TRANS_FRAMES, refs1, kfe, sd * 100 + i, lat, True)
+        im = _rgb(r["frames"][-1])
+        if im.shape[:2] != (h, w):
+            im = cv2.resize(im, (w, h), interpolation=cv2.INTER_AREA)
+        p = os.path.join(work, f"head_s{i + 1}.png")
+        Image.fromarray(im).save(p)
+        heads.append((p, im))
+        info["trans"].append(_T("S{v0}→S{v1}: 穴 {v2}%・差し込み {v3}/{v4}", v0=i, v1=i + 1, v2=f"{holes[-1] * 100:.0f}", v3=hits,
+                                v4=int(lat.shape[2])))
+    # ---- 段 2: 動画 ----
+    entries, lats, anchors, cam_words = [], [], [], []
+    n_lat = g["kf_latent_count"](nf)
+    for i in range(len(shots)):
+        a, b = bounds[i], bounds[i + 1]
+        if moving[i]:
+            L = b - a
+            L = L if (L - 5) % 17 == 0 else (L - 5) // 17 * 17 + 5
+            if L >= 5:
+                st["msg"] = _T("🌀 S{v0} を 3D のカメラどおりに歪ませています", v0=i + 1)
+                cams = [cam.at(fi, head=(fi == a)) for fi in range(a, a + L)]
+                wf, holes = _warp(heads[i][1], cams, cam, scene, pmask(heads[i][1]))
+                lat = _clip_latent(wf)
+                k0 = g["kf_px_to_lat"](a, n_lat)
+                nk = min(int(lat.shape[2]), n_lat - k0)
+                if nk > 0 and not (set(range(k0, k0 + nk)) & set(anchors)):
+                    lats.append(lat[:, :, :nk])
+                    anchors += list(range(k0, k0 + nk))
+                    cam_words.append(cam.words(cam.sample(a / FPS + 1e-4), cam.sample((b - 1) / FPS)))
+                    info["shots"].append(_T("S{v0}: カメラが動く（歪ませ {v1} コマ・最後の穴 {v2}%）", v0=i + 1, v1=L, v2=f"{holes[-1] * 100:.0f}"))
+                    continue
+        cam_words.append("")
+        entries.append({"path": heads[i][0], "sec": a / FPS, "name": f"h{i}.png"})
+        fe = max(a + 3, min(nf - 1, b - END_GAP))
+        entries.append({"path": heads[i][0], "sec": fe / FPS, "name": f"e{i}.png", "str": END_STR})
+        info["shots"].append(_T("S{v0}: カメラが止まる（頭と終わりに静止画）", v0=i + 1))
+    kfe = []
+    if entries:
+        entries.sort(key=lambda d: d["sec"])
+        kfe, _note, err = g["kf_prepare"](entries, w, h, nf)    # 🔴 kf_prepare は呼ぶたびに効き目の控えを消す → 生成の直前に
+        if not kfe and entries:
+            raise RuntimeError(err or "kf_prepare")
+    lat_all = None
+    if lats:
+        import torch
+        lat_all = torch.cat(lats, 2)
+        kfe = list(kfe or []) + [(_marker(j, h, w), anchors[j]) for j in range(len(anchors))]
+    pics = list(range(len(shots)))
+    refs = {"image": [p for p, _im in heads], "video": [], "audio": []}
+    prompt = compose_prompt_v2(scene, rms, place, action, cam_words, pics, bool(lats))
+    st["msg"] = _T("🎬 動画を生成しています")
+    r, hits = run("Ref2VA", prompt, nf, refs, kfe or None, sd, lat_all, bool(lats))
+    if lats:
+        info["shots"].append(_T("動画の潜在の差し込み {v0}/{v1}", v0=hits, v1=len(anchors)))
+    return r, prompt, refs, info
+
+
 def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
-    """書き出したガイドで R2V を回す（ジェネレータ: (STATUS, 結果の動画)）"""
+    """書き出したガイドで生成する（ジェネレータ: (STATUS, 結果の動画)）。
+    0.6.0 2 段階: ショットの頭の静止画（1 つ目は Ref2I＋ガイドのコマを弱いキーフレーム、カットの後は前の頭からカメラを動かすつなぎ）→
+    カメラが動くショットは頭の静止画を 3D のカメラどおりに歪ませて CrossView-Warp のガイドに、止まるショットは頭と終わりに静止画"""
     import time
     import numpy as np
     g = _g()
@@ -655,23 +1310,20 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
            for k, v in rm.items() if k in ("sel", "strength", "each", "cap")}
     rvf0 = g["_UI_STATE"].get("ref_video_frames")
     sd = int(seed) if seed is not None and int(seed) >= 0 else int(np.random.randint(0, 2 ** 31 - 1))
-    refs = {"image": [], "video": [gp], "audio": []}
-    box = {}
-    kfe = None
-    if usekf:                                                     # 0.3.0 画像を 0 秒のキーフレームに（本体の R2V のキーフレーム）
+    kp = ""
+    if usekf:                                                     # 0.3.0 画像を 1 つ目のショットの頭に（0.6.0 段 1 の静止画の代わり）
         kp = str(kfpath or "")
         if not (kp and os.path.isfile(kp)):
             lines.append(_T("⚠️ 最初のコマにする画像がありません（編集画面の「🖼 画像」で読み込んでください）"))
+            kp = ""
         else:
-            try:
-                kfe, _kn, kerr = g["kf_prepare"]([{"path": kp, "sec": 0.0, "name": os.path.basename(kp)}], w, h, nf)
-                if kfe:
-                    lines.append(_T("🖼 画像を最初のコマにします（0 秒のキーフレーム）"))
-                else:
-                    lines.append(_T("⚠️ キーフレームを用意できませんでした: {v0}", v0=kerr or "?"))
-            except Exception as e:                                # noqa: BLE001
-                kfe = None
-                lines.append(_T("⚠️ キーフレームを用意できませんでした: {v0}", v0=f"{e}"))
+            lines.append(_T("🖼 画像を最初のコマにします（0 秒のキーフレーム）"))
+    box, st = {}, {"msg": "", "prog": {"n": 0, "total": 4}}
+    key = g["turbo_key"]()
+    try:
+        steps = int(g["steps_for_lora"](key, False, "Ref2VA") or 0) or 4
+    except Exception:                                             # noqa: BLE001
+        steps = 4
     try:
         ok, msg = g["ensure_mode"]("Ref2VA")
         if not ok:
@@ -679,33 +1331,20 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
             return
         rm.update(sel=list(rms[:max(1, n_people)]), strength=1.0, each={}, cap=0)
         g["_UI_STATE"]["ref_video_frames"] = 0
-        prompt = compose_prompt(scene, rms, place, action)
-        try:
-            prompt, notes = g["expand_prompt_labels"](prompt, refs)
-            lines += list(notes or [])
-        except Exception as e:                                    # noqa: BLE001
-            lines.append(_T("⚠️ ラベルを展開できませんでした: {v0}", v0=f"{e}"))
-        key = g["turbo_key"]()
-        try:
-            steps = int(g["steps_for_lora"](key, False, "Ref2VA") or 0) or 4
-        except Exception:                                         # noqa: BLE001
-            steps = 4
-        lines.append(_T("🎬 R2V: {v0}×{v1}・{v2} コマ・seed {v3}・{v4}・Steps {v5}・ガイドは短辺 {v6} で読みます",
-                        v0=w, v1=h, v2=nf, v3=sd, v4=key or _T("Turbo なし"), v5=steps, v6=GUIDE_READ_EDGE))
-        prog = {"n": 0, "total": steps, "phase": "denoise"}
+        lines.append(_T("🎬 R2V: {v0}×{v1}・{v2} コマ・seed {v3}・{v4}・Steps {v5}", v0=w, v1=h, v2=nf, v3=sd, v4=key or _T("Turbo なし"), v5=steps))
 
         def _worker():
             try:
-                with _canvas(GUIDE_READ_EDGE):
-                    box["res"] = g["_run_pipe"]("Ref2VA", prompt, w, h, nf, steps, sd, None, None, refs, prog, kf_entries=kfe)
+                box["res"], box["prompt"], box["refs"], box["info"] = _two_stage(st, gp, meta, rms, place, action, sd, w, h, nf, steps, kp)
             except BaseException as e:                            # noqa: BLE001
                 box["err"] = e
         th = threading.Thread(target=_worker, daemon=True)
         t0 = time.time()
         th.start()
         while th.is_alive():
-            yield "\n".join(lines + [_T("⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s", v0=prog.get("n", 0), v1=prog.get("total", steps),
-                                        v2=f"{time.time() - t0:.0f}")]), None
+            pr = st.get("prog") or {}
+            yield "\n".join(lines + [str(st.get("msg") or ""), _T("⏳ 生成中  {v0}/{v1} steps  ⏱ {v2}s", v0=pr.get("n", 0),
+                                                                   v1=pr.get("total", steps), v2=f"{time.time() - t0:.0f}")]), None
             time.sleep(0.5)
         th.join()
     finally:
@@ -722,33 +1361,29 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
         e = box["err"]
         yield "\n".join(lines + [_T("❌ 生成に失敗しました: {v0}", v0=f"{type(e).__name__}: {e}")]), None
         return
-    r = box["res"]
+    r, prompt, refs, info = box["res"], box["prompt"], box["refs"], box["info"]
+    lines += ["  " + x for x in info.get("shots", []) + info.get("trans", [])]
     yield "\n".join(lines + [_T("📼 書き出しています…")]), None
     log = g.get("log") or print
     try:
         stamp = datetime.datetime.now().strftime("%H%M%S")
         out = os.path.join("/content", f"minimax_h3_c3d_{stamp}_{sd}.mp4")
-        _fr = r["frames"]
-        log(f"[camera3d] export: frames={type(_fr).__name__} n={len(_fr)} first={type(_fr[0]).__name__} → {out}")
-        _write_mp4(_fr, out, log)                                  # 0.4.3 imageio を通さず ffmpeg へ直接
-        log(f"[camera3d] export: done {os.path.getsize(out) if os.path.isfile(out) else 0} bytes")
+        _write_mp4(r["frames"], out, log)                         # 0.4.3 imageio を通さず ffmpeg へ直接
     except Exception as e:                                        # noqa: BLE001
         yield "\n".join(lines + [_T("❌ 動画を書き出せませんでした: {v0}", v0=f"{type(e).__name__}: {e}")]), None
         return
     if r.get("audio") is not None:
         try:
-            g["_mux_audio"](out, r["audio"], r.get("sr"))         # 本体の生成と同じ渡し方
-            log("[camera3d] audio: done")
+            g["_mux_audio"](out, r["audio"], r.get("sr"))
         except Exception as e:                                    # noqa: BLE001
             lines.append(f"⚠️ audio: {e}")
     try:
         m = g["build_meta"]("Ref2VA", prompt, w, h, "", nf / float(FPS), nf, steps, sd, key,
                             float(g["_LORA_STATE"].get("strength", 1.0)), refs, float(r.get("sec", 0.0)), float(r.get("peak", 0.0)))
-        m["camera3d"] = {"guide": gp, "read_edge": GUIDE_READ_EDGE, "first_frame": (str(kfpath) if kfe else ""),
-                         "module": f"{NAME} {VERSION}"}
+        m["camera3d"] = {"guide": gp, "two_stage": True, "first_frame": kp, "module": f"{NAME} {VERSION}",
+                         "shots": info.get("shots", []), "trans": info.get("trans", [])}
         m["refmods"] = {"names": rms[:max(1, n_people)], "strength": 1.0, "each": {n: 1.0 for n in rms[:max(1, n_people)]}, "cap": 0}
         g["write_meta"](out, m)
-        log("[camera3d] meta: done")
     except Exception as e:                                        # noqa: BLE001
         lines.append(f"⚠️ meta: {e}")
     lines.append(_T("✅ 生成しました（{v0} 秒）: {v1}", v0=f"{float(r.get('sec', 0.0)):.0f}", v1=os.path.basename(out)))
