@@ -70,6 +70,7 @@
        （測ったのは lightx2v 4step v1.0 768p (REF2V)・4 歩・1.0）＋カメラが止まるショットにも頭の静止画を <Picture N> で参照していた
        （測った KW は参照なし。キーフレームと同じ絵を参照にも入れると二重に効く）。→ 生成の間だけ測った Turbo に固定して終わったら戻す・
        参照の静止画はカメラが動くショットだけ（焼けた原因はこの 2 つのどちらかと見る・⏳未確認）
+0.6.2: 利用者「画質が悪い」（RETAKE の 1920×1088 と比べて）→ 生成の箱に「解像度」（768p／1080p。保存する）。0.6.1 までは 768 系に固定だった
 人体のファイルは同じリポジトリの assets/camera3d/（コミットと sha256 で固定）。本体の _gh_fetch_verified で取り寄せる。
 """
 import base64
@@ -83,7 +84,7 @@ import threading
 import uuid
 
 NAME = "camera3d"
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 API = 1
 
 THREE_VER = "0.170.0"                    # three.js（MIT）。jsdelivr の +esm で読む（アドオンは同じ版の本体を import する）
@@ -216,6 +217,10 @@ I18N = {
     "❌ 動画を書き出せませんでした: {v0}": {"en": "❌ Could not write the video: {v0}", "zh": "❌ 无法写出视频：{v0}", "ko": "❌ 영상을 쓸 수 없었습니다: {v0}"},
     "✅ 生成しました（{v0} 秒）: {v1}": {"en": "✅ Generated ({v0} s): {v1}", "zh": "✅ 已生成（{v0} 秒）：{v1}", "ko": "✅ 생성했습니다({v0} 초): {v1}"},
     "停止": {"en": "Stop", "zh": "停止", "ko": "정지"},
+    # ---- 0.6.2 解像度 ----
+    "解像度": {"en": "Resolution", "zh": "分辨率", "ko": "해상도"},
+    "768p（速い）": {"en": "768p (fast)", "zh": "768p（快）", "ko": "768p(빠름)"},
+    "1080p（細かい・時間は約 2 倍）": {"en": "1080p (finer, about 2× the time)", "zh": "1080p（更细腻・时间约 2 倍）", "ko": "1080p(더 섬세함・시간 약 2배)"},
     # ---- 0.6.0 2 段階＋カメラの動き ----
     "📦 MoGe と CrossView-Warp を確かめています…": {"en": "📦 Checking MoGe and CrossView-Warp…", "zh": "📦 正在检查 MoGe 和 CrossView-Warp…",
                                              "ko": "📦 MoGe 와 CrossView-Warp 를 확인하는 중…"},
@@ -321,7 +326,7 @@ def c3d_load_scene(_=None):
     return {"scene": d.get("scene"), "ts": float(d.get("ts") or 0)} if d.get("scene") else {}
 
 
-def _save_gen(rms, place, action, seed, usekf):
+def _save_gen(rms, place, action, seed, usekf, size="768"):
     d = _store()
     if d is None:
         return
@@ -330,7 +335,7 @@ def _save_gen(rms, place, action, seed, usekf):
     except (TypeError, ValueError):
         sd = -1
     d["gen"] = {"rms": [str(x) for x in (rms or [])], "place": str(place or ""), "action": str(action or ""), "seed": sd,
-                "usekf": bool(usekf)}
+                "usekf": bool(usekf), "size": str(size or "768")}
     _store_write()
 
 
@@ -674,6 +679,7 @@ CROSSVIEW = ("Cseti/MiniMax-H3_Ref2VA-LoRA-CrossView-Warp_v1", "MiniMax-H3_Ref2V
              "crossview_warp_v1")         # MiniMax H3 Community License（本体と同じ）
 CROSSVIEW_STR = 0.8                       # セル219: 0.4 は穴（マゼンタ）が残る・0.6〜0.8 は同じ
 TRANS_FRAMES = 22                         # セル218・219: カットの後の頭は前の頭の静止画から 22 コマのつなぎで（同じ部屋・ガイドの角度）
+SIZES = {"768": (768, 768 * 1344), "1080": (1088, 1088 * 1920)}   # 0.6.2 解像度 → (短辺, 画素の上限)
 TWO_STAGE_TURBO = "lightx2v 4step v1.0 768p (REF2V)"   # 0.6.1 セル209〜219 はこの Turbo・4 歩・強さ 1.0 で測った（0.6.0 は CREATE の設定のまま）
 MOGE_REPO = "Ruicheng/moge-2-vitl-normal"  # MoGe-2（コード・重みとも MIT）
 _SIG = (11, 77, 201)                      # 動画の潜在を差し込むキーフレームの印（左上の 3 画素）
@@ -1275,7 +1281,7 @@ def _two_stage(st, gp, meta, rms, place, action, sd, w, h, nf, steps, kfpath):
     return r, prompt, refs, info
 
 
-def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
+def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath="", size="768"):
     """書き出したガイドで生成する（ジェネレータ: (STATUS, 結果の動画)）。
     0.6.0 2 段階: ショットの頭の静止画（1 つ目は Ref2I＋ガイドのコマを弱いキーフレーム、カットの後は前の頭からカメラを動かすつなぎ）→
     カメラが動くショットは頭の静止画を 3D のカメラどおりに歪ませて CrossView-Warp のガイドに、止まるショットは頭と終わりに静止画"""
@@ -1302,7 +1308,8 @@ def c3d_generate(gpath, rms, place, action, seed, usekf=False, kfpath=""):
                 v3=nf, v4=f"{nf / float(FPS):.2f}")]
     try:
         from diffusers.modular_pipelines.minimax_h3.modular_pipeline import resolve_canvas_size
-        h, w = resolve_canvas_size(int(meta["w"]), int(meta["h"]), 32, 768, 768 * 1344)
+        _se, _mp = SIZES.get(str(size or "768"), SIZES["768"])   # 0.6.2 解像度を選べる（利用者要望）
+        h, w = resolve_canvas_size(int(meta["w"]), int(meta["h"]), 32, _se, _mp)
     except Exception:                                             # noqa: BLE001
         w, h = (1344, 768) if int(meta.get("w", 16)) >= int(meta.get("h", 9)) else (768, 1344)
     n_people = len(scene.get("people") or [])
@@ -2243,12 +2250,12 @@ async (x) => {
 
 # 0.2.0 生成ボタン: 先にガイドを書き出し、そのパスと入力を Python へ
 GEN_JS = """
-async (x, rms, place, action, seed, usekf, kf) => {
+async (x, rms, place, action, seed, usekf, kf, size) => {
   const bg = window.__c3d ? window.__c3d.bgPath() : '';
   try {
-    if (!window.__c3d) return ['', rms, place, action, seed, usekf, bg];
-    return [await window.__c3d.exportGuide(), rms, place, action, seed, usekf, bg];
-  } catch (e) { return ['ERR: ' + (e && e.message ? e.message : e), rms, place, action, seed, usekf, bg]; }
+    if (!window.__c3d) return ['', rms, place, action, seed, usekf, bg, size];
+    return [await window.__c3d.exportGuide(), rms, place, action, seed, usekf, bg, size];
+  } catch (e) { return ['ERR: ' + (e && e.message ? e.message : e), rms, place, action, seed, usekf, bg, size]; }
 }
 """
 
@@ -2267,7 +2274,7 @@ _MIRROR = {                                                       # SEGMENTS の
     "#seg-concat-btn": ["#c3d-add-f", "#c3d-add-m", "#c3d-del", "#c3d-key", "#c3d-unkey", "#c3d-export", "#c3d-run-btn",
                         "#c3d-cut", "#c3d-uncut"],
     "#seg-len": ["#c3d-dur", "#c3d-lens"],
-    "#status-panel": ["#c3d-status"], "#lora-dd": ["#c3d-aspect", "#c3d-ease", "#c3d-pose", "#c3d-mode"],
+    "#status-panel": ["#c3d-status"], "#lora-dd": ["#c3d-aspect", "#c3d-ease", "#c3d-pose", "#c3d-mode", "#c3d-size"],
     "#seg-note": ["#c3d-note"],
     "#seg-reseed": ["#c3d-usekf"],                                # 0.3.0 チェック（RETAKE の #rt-inherit と同じ写し）
 }
@@ -2279,7 +2286,7 @@ CSS_EXTRA = """
 #c3d-scene > *, #c3d-obj > *, #c3d-gen > * { margin-top: 0 !important; }
 /* 0.2.0 文字の欄（場所・動き・Seed・RefMod）の見出しは（左の生成の箱は、見えている枠〔中の .form〕が編集画面の枠と左右の端でそろうように 12px）、同じ箱の部品（スライダー＝SEGMENT の写し）と同じ書式（RETAKE の #rt-action と同じ値） */
 #c3d-place label, #c3d-place label > span:first-child, #c3d-action label, #c3d-action label > span:first-child,
-#c3d-seed label, #c3d-seed label > span:first-child, #c3d-rms [data-testid="block-info"] {
+#c3d-seed label, #c3d-seed label > span:first-child, #c3d-rms [data-testid="block-info"], #c3d-size [data-testid="block-info"] {
     font-size: 12px !important; color: var(--h3-muted) !important; letter-spacing: 0.04em !important; font-weight: 400 !important;
 }
 #c3d-place textarea, #c3d-place input, #c3d-action textarea, #c3d-seed input { color: var(--h3-text3) !important; font-size: 13px !important; letter-spacing: 0 !important; }
@@ -2445,6 +2452,9 @@ def build_slot(ctx, slot):
                     _UI["action"] = gr.Textbox(value=str(_gs.get("action") or ""), label="動き・セリフ（時刻つき）", lines=4, elem_id="c3d-action",
                                                placeholder="例: 0-2s: <Subject 1> waves and says <d>[Japanese] おはよう</d> 2-5s: <Subject 2> laughs.")
                     _UI["seed"] = gr.Number(value=int(_gs.get("seed", -1)), precision=0, label="Seed（−1 でランダム）", elem_id="c3d-seed")
+                    _UI["size"] = gr.Dropdown(choices=[("768p（速い）", "768"), ("1080p（細かい・時間は約 2 倍）", "1080")],
+                                              value=str(_gs.get("size") or "768") if str(_gs.get("size") or "768") in SIZES else "768",
+                                              label="解像度", elem_id="c3d-size", container=True, filterable=False)   # 0.6.2
                     _UI["usekf"] = gr.Checkbox(value=bool(_gs.get("usekf", False)), label="画像を最初のコマにする", elem_id="c3d-usekf")
                 gr.Markdown("人は「＋ 女性」「＋ 男性」で足し、画面で押して選びます。時刻を動かしてから人やカメラを動かすと、その時刻にキーが入ります"
                             "（「カメラ」の表示では、ドラッグで回り込み・右ドラッグで平行移動・ホイールで寄り引き）。動き（演技）はここでは付けず、生成のプロンプトに書きます。",
@@ -2515,12 +2525,12 @@ def _wire():
     u["export"].click(_after_export, inputs=[u["res"]], outputs=[u["out"], u["msg"]], js=EXPORT_JS, show_progress="minimal")
     u["rms"].focus(lambda v: _ST["ctx"].gr.update(choices=_refmod_choices(), value=v), inputs=[u["rms"]], outputs=[u["rms"]],
                    queue=False, show_progress="hidden")
-    _gin = [u["rms"], u["place"], u["action"], u["seed"], u["usekf"]]      # 0.5.0 生成の箱は変えるたびに設定ファイルへ
-    for _c in (u["rms"], u["seed"], u["usekf"]):
+    _gin = [u["rms"], u["place"], u["action"], u["seed"], u["usekf"], u["size"]]      # 0.5.0 生成の箱は変えるたびに設定ファイルへ
+    for _c in (u["rms"], u["seed"], u["usekf"], u["size"]):
         _c.change(_save_gen, inputs=_gin, outputs=None, queue=False, show_progress="hidden")
     for _c in (u["place"], u["action"]):                                  # 文字の欄は打つたびではなく離れたとき
         _c.blur(_save_gen, inputs=_gin, outputs=None, queue=False, show_progress="hidden")
-    u["gen"].click(c3d_generate, inputs=[u["res"], u["rms"], u["place"], u["action"], u["seed"], u["usekf"], u["kf"]],
+    u["gen"].click(c3d_generate, inputs=[u["res"], u["rms"], u["place"], u["action"], u["seed"], u["usekf"], u["kf"], u["size"]],
                    outputs=[u["msg"], u["result"]],
                    js=GEN_JS, concurrency_id="generate", concurrency_limit=1, show_progress="minimal")
 
